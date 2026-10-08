@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TheInvite
 
-## Getting Started
+A lightweight event invitation app. Guests request an invitation from the host who invited them; admins approve requests, which assigns a table and emails the guest a personalised two-page PDF access card.
 
-First, run the development server:
+- **Next.js 16** (App Router, Cache Components) · **React 19** · **Tailwind CSS v4**
+- **Google Sheets** is the data store. There is no database.
+- **Auth.js** passwordless email sign-in for admins
+- **Resend** for magic-link and access-card emails
+- **pdf-lib** overlays guest details onto the card template
+
+## Setup
 
 ```bash
+npm install
+cp .env.example .env.local   # then fill in the values
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+All environment variables are server-only. See [.env.example](.env.example) for what each one is.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Google Sheet
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Create a Google Cloud service account and download its JSON key. Copy `client_email` into `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `private_key` into `GOOGLE_PRIVATE_KEY`.
+2. Enable the Google Sheets API for that project.
+3. Create a spreadsheet, share it with the service-account email as **Editor**, and put its ID in `GOOGLE_SHEET_ID`.
+4. Add a tab named `Guests` with this header row:
 
-## Learn More
+   ```text
+   id | name | email | invitedBy | status | table | cardStatus | createdAt | approvedAt | cardSentAt
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+### Resend
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Where things live
 
-## Deploy on Vercel
+| Path | Purpose |
+| --- | --- |
+| [config/event.ts](config/event.ts) | Hosts, capacities, tables and access-card overlay settings (dummy values for now) |
+| [lib/guest.ts](lib/guest.ts) | Guest record type and sheet column order |
+| [lib/env.ts](lib/env.ts) | Validated server-only environment access and the admin allow-list |
+| [template/New.pdf](template/New.pdf) | The single access-card template (page 1 unchanged, page 2 gets the overlay) |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Business rules
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- One access card admits one person; couples need two cards.
+- Each email address can request one invitation in total, under any host.
+- Only approved guests count towards capacity. Approval assigns the next table with a free seat.
+- Changing a guest's table does not resend their card. Admins resend it explicitly.
