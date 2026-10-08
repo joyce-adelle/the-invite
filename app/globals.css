@@ -1,20 +1,123 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-/* TheInvite palette. Gold is an accent only — borders, rules, small details. */
-@theme {
-  --color-burgundy: #660033;
-  --color-burgundy-dark: #4a0025;
-  --color-olive: #5e6b35;
-  --color-olive-light: #8a9662;
-  --color-gold: #c29b40;
-  --color-ivory: #fbf8f2;
-  --color-ink: #2a1a20;
+/* Light-only app: `dark:` utilities in shadcn components stay inert. */
+@custom-variant dark (&:is(.dark *));
 
-  --font-sans: var(--font-geist-sans);
-  --font-display: var(--font-cormorant);
+/*
+ * Design tokens. Components use these (bg-primary, text-muted-foreground,
+ * border-border, bg-gold…) rather than raw colours.
+ *
+ * Gold is an accent: rules, borders, small details. Its contrast is too low
+ * for body text on light backgrounds.
+ */
+:root {
+  --background: #fbf9f5;
+  --foreground: #2a1a20;
+  --card: #ffffff;
+  --card-foreground: #2a1a20;
+  --popover: #ffffff;
+  --popover-foreground: #2a1a20;
+
+  /* Burgundy — the brand colour, primary actions, links. */
+  --primary: #660033;
+  --primary-foreground: #ffffff;
+
+  /* Soft olive tint for secondary actions. */
+  --secondary: #eef0e4;
+  --secondary-foreground: #3f4823;
+
+  --muted: #f3efe8;
+  --muted-foreground: #6b5e63;
+
+  /* Hover/highlight surfaces (menu items, rows): a faint burgundy wash. */
+  --accent: #f7edf1;
+  --accent-foreground: #4a0025;
+
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --success: #2e7d4f;
+  --success-foreground: #ffffff;
+
+  --olive: #5e6b35;
+  --olive-foreground: #ffffff;
+  --gold: #c29b40;
+  --gold-foreground: #2a1a20;
+
+  --border: #e8e1d6;
+  --input: #ddd4c7;
+  --ring: #660033;
+
+  --radius: 0.5rem;
 }
 
-body {
-  background: var(--color-ivory);
-  color: var(--color-ink);
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-olive: var(--olive);
+  --color-olive-foreground: var(--olive-foreground);
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Geist for UI and admin; Cormorant Garamond only for public display headings. */
+  --font-sans: var(--font-geist-sans);
+  --font-heading: var(--font-geist-sans);
+  --font-display: var(--font-cormorant);
+
+  /* Soft, warm-tinted shadows. */
+  --shadow-xs: 0 1px 2px 0 rgb(42 26 32 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(42 26 32 / 0.06), 0 1px 2px -1px rgb(42 26 32 / 0.04);
+  --shadow-md: 0 4px 12px -2px rgb(42 26 32 / 0.08), 0 2px 4px -2px rgb(42 26 32 / 0.04);
+  --shadow-lg: 0 12px 32px -8px rgb(42 26 32 / 0.12), 0 4px 8px -4px rgb(42 26 32 / 0.05);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  ::selection {
+    @apply bg-primary/15;
+  }
+  :focus-visible {
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }

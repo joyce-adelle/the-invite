@@ -40,6 +40,9 @@ Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`
 | [config/event.ts](config/event.ts) | Hosts, capacities, tables and access-card overlay settings (dummy values for now) |
 | [lib/guest.ts](lib/guest.ts) | Guest record type and sheet column order |
 | [lib/env.ts](lib/env.ts) | Validated server-only environment access and the admin allow-list |
+| [app/globals.css](app/globals.css) | Theme tokens (brand palette, radius, shadows, fonts) used by every component |
+| [components/ui/](components/ui/) | shadcn/ui components (Radix base); add more with `npx shadcn@latest add <name>` |
+| [components/layout/](components/layout/) | `Container`, `PublicShell`, `AdminShell`, `PageHeader` |
 | [template/New.pdf](template/New.pdf) | The single access-card template (page 1 unchanged, page 2 gets the overlay) |
 
 ## Business rules
