@@ -3,31 +3,32 @@
 A lightweight event invitation app. Guests request an invitation from the host who invited them; admins approve requests, which assigns a table and emails the guest a personalised two-page PDF access card.
 
 - **Next.js 16** (App Router, Cache Components) · **React 19** · **Tailwind CSS v4**
-- **Google Sheets** is the data store. There is no database.
+- **PostgreSQL** via **Prisma 7**. Local Postgres runs in Docker; production is any hosted Postgres set through `DATABASE_URL`.
 - **Auth.js** passwordless email sign-in for admins
 - **Resend** for magic-link and access-card emails
 - **pdf-lib** overlays guest details onto the card template
 
 ## Setup
 
+Requires Node 20.19+ and Docker.
+
 ```bash
-npm install
-cp .env.example .env.local   # then fill in the values
+npm install                   # also generates the Prisma client
+cp .env.example .env.local    # then fill in the values
+docker compose up -d          # local Postgres on localhost:5433
+npm run db:migrate            # apply migrations (prisma migrate dev)
 npm run dev
 ```
 
 All environment variables are server-only. See [.env.example](.env.example) for what each one is.
 
-### Google Sheet
+### Database
 
-1. Create a Google Cloud service account and download its JSON key. Copy `client_email` into `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `private_key` into `GOOGLE_PRIVATE_KEY`.
-2. Enable the Google Sheets API for that project.
-3. Create a spreadsheet, share it with the service-account email as **Editor**, and put its ID in `GOOGLE_SHEET_ID`.
-4. Add a tab named `Guests` with this header row:
-
-   ```text
-   id | name | email | invitedBy | status | table | cardStatus | createdAt | approvedAt | cardSentAt
-   ```
+- `DATABASE_URL` is the only database setting. The Prisma CLI reads it from `.env.local` just like Next.js does ([prisma.config.ts](prisma.config.ts)).
+- Local data persists in the `pgdata` Docker volume across restarts. `docker compose down -v` deletes it.
+- **Schema changes:** edit [prisma/schema.prisma](prisma/schema.prisma), then run `npm run db:migrate -- --name <change>` and commit the new folder in `prisma/migrations/`.
+- **Production:** run `npm run db:deploy` (`prisma migrate deploy`) against the hosted database before or during deploy. If your provider gives you a pooled connection string (e.g. Supabase's transaction pooler), run migrations with its direct or session connection string.
+- Some constraints live only in the migration SQL because Prisma's schema language can't express them: normalised emails, and approved guests must have a table.
 
 ### Resend
 
@@ -38,8 +39,12 @@ Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`
 | Path | Purpose |
 | --- | --- |
 | [config/event.ts](config/event.ts) | Hosts, capacities, tables and access-card overlay settings (dummy values for now) |
-| [lib/guest.ts](lib/guest.ts) | Guest record type and sheet column order |
-| [lib/env.ts](lib/env.ts) | Validated server-only environment access and the admin allow-list |
+| [prisma/schema.prisma](prisma/schema.prisma) | Database schema; migrations in [prisma/migrations/](prisma/migrations/) |
+| [lib/data/guests.ts](lib/data/guests.ts) | Server-only guest data access: requests, approve/reject/cancel, tables, card status, dashboard counts |
+| [lib/data/errors.ts](lib/data/errors.ts) | `GuestError` with a `code` for expected failures (duplicate email, host full, …) |
+| [lib/db.ts](lib/db.ts) | Server-only Prisma client |
+| [lib/guest.ts](lib/guest.ts) | `Guest` type, status enums and `normalizeEmail` (safe in client components) |
+| [lib/seating.ts](lib/seating.ts) | Capacity and table-occupancy calculations |
 | [app/globals.css](app/globals.css) | Theme tokens (brand palette, radius, shadows, fonts) used by every component |
 | [components/ui/](components/ui/) | shadcn/ui components (Radix base); add more with `npx shadcn@latest add <name>` |
 | [components/layout/](components/layout/) | `Container`, `PublicShell`, `AdminShell`, `PageHeader` |
@@ -48,6 +53,6 @@ Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`
 ## Business rules
 
 - One access card admits one person; couples need two cards.
-- Each email address can request one invitation in total, under any host.
+- An email address can be used for more than one request (e.g. a couple sharing an address). Each request is still one card for one person.
 - Only approved guests count towards capacity. Approval assigns the next table with a free seat.
 - Changing a guest's table does not resend their card. Admins resend it explicitly.

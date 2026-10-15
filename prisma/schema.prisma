@@ -1,0 +1,45 @@
+// Hosts, tables and the access-card template are application configuration
+// (config/event.ts), not database records. Guests reference a host by its id.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum GuestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum CardStatus {
+  NOT_SENT
+  SENT
+  FAILED
+}
+
+model Guest {
+  id          String      @id @default(uuid()) @db.Uuid
+  name        String
+  email       String
+  /// Host id from config/event.ts.
+  invitedBy   String      @map("invited_by")
+  status      GuestStatus @default(PENDING)
+  /// Table from the host's configuration. Required while APPROVED (CHECK constraint).
+  tableNumber Int?        @map("table_number")
+  cardStatus  CardStatus  @default(NOT_SENT) @map("card_status")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  approvedAt  DateTime?   @map("approved_at") @db.Timestamptz(3)
+  cardSentAt  DateTime?   @map("card_sent_at") @db.Timestamptz(3)
+
+  // Capacity and occupancy are derived from APPROVED rows per host and per table.
+  @@index([email])
+  @@index([invitedBy, status])
+  @@index([status, tableNumber])
+  @@map("guests")
+}

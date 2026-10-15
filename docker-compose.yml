@@ -1,0 +1,23 @@
+# Local PostgreSQL for development only. Production uses DATABASE_URL.
+# Start: docker compose up -d    Stop: docker compose down    (data persists in the volume)
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: the_invite
+    ports:
+      # 5433 on the host so it won't clash with another local Postgres on 5432.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d the_invite"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  pgdata:
