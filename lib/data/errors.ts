@@ -4,7 +4,7 @@
 
 export type GuestErrorCode =
   | "GUEST_NOT_FOUND"
-  /** invitedBy doesn't match a host in config/event.ts. */
+  /** No host with that id exists. */
   | "UNKNOWN_HOST"
   /** The operation isn't allowed from the guest's current status. */
   | "INVALID_STATUS"

@@ -1,7 +1,10 @@
-// Capacity and table occupancy, derived from configuration plus counts of
-// APPROVED guests. Pure functions, so the admin UI can use them too.
+// Capacity and table occupancy, derived from each host's seeded capacity and
+// tables plus counts of APPROVED guests. Pure functions, so the admin UI can
+// use them too.
 
-import type { Host } from "@/config/event";
+import type { Host, Table } from "@/lib/generated/prisma/browser";
+
+export type HostWithTables = Host & { tables: Table[] };
 
 export type TableOccupancy = {
   number: number;
@@ -24,7 +27,7 @@ export type HostOccupancy = {
  * @param approvedByTable APPROVED guests seated at each table number.
  */
 export function hostOccupancy(
-  host: Host,
+  host: HostWithTables,
   approved: number,
   approvedByTable: ReadonlyMap<number, number>,
 ): HostOccupancy {
@@ -46,7 +49,7 @@ export function hostOccupancy(
   };
 }
 
-/** First table, in configured order, with a free seat; null if none. */
+/** First table, in the order given, with a free seat; null if none. */
 export function nextAvailableTable(occupancy: HostOccupancy): number | null {
   return occupancy.tables.find((table) => table.remaining > 0)?.number ?? null;
 }

@@ -17,6 +17,7 @@ npm install                   # also generates the Prisma client
 cp .env.example .env.local    # then fill in the values
 docker compose up -d          # local Postgres on localhost:5433
 npm run db:migrate            # apply migrations (prisma migrate dev)
+npm run db:seed               # create the hosts and their tables
 npm run dev
 ```
 
@@ -27,8 +28,9 @@ All environment variables are server-only. See [.env.example](.env.example) for 
 - `DATABASE_URL` is the only database setting. The Prisma CLI reads it from `.env.local` just like Next.js does ([prisma.config.ts](prisma.config.ts)).
 - Local data persists in the `pgdata` Docker volume across restarts. `docker compose down -v` deletes it.
 - **Schema changes:** edit [prisma/schema.prisma](prisma/schema.prisma), then run `npm run db:migrate -- --name <change>` and commit the new folder in `prisma/migrations/`.
-- **Production:** run `npm run db:deploy` (`prisma migrate deploy`) against the hosted database before or during deploy. If your provider gives you a pooled connection string (e.g. Supabase's transaction pooler), run migrations with its direct or session connection string.
-- Some constraints live only in the migration SQL because Prisma's schema language can't express them: normalised emails, and approved guests must have a table.
+- **Hosts and tables** come from [prisma/seed.ts](prisma/seed.ts); there's no UI for them. Edit the list and re-run `npm run db:seed`: it updates in place and never deletes, because guests reference hosts and tables. Don't change a host's `id` once guests exist.
+- **Production:** run `npm run db:deploy` (`prisma migrate deploy`) against the hosted database before or during deploy, and `npm run db:seed` once. If your provider gives you a pooled connection string (e.g. Supabase's transaction pooler), run migrations with its direct or session connection string.
+- Some constraints live only in the migration SQL because Prisma's schema language can't express them: normalised emails, approved guests must have a table, and capacities must be positive.
 
 ### Resend
 
@@ -38,11 +40,13 @@ Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`
 
 | Path | Purpose |
 | --- | --- |
-| [config/event.ts](config/event.ts) | Hosts, capacities, tables and access-card overlay settings (dummy values for now) |
-| [prisma/schema.prisma](prisma/schema.prisma) | Database schema; migrations in [prisma/migrations/](prisma/migrations/) |
+| [config/event.ts](config/event.ts) | Event name and access-card overlay settings |
+| [prisma/schema.prisma](prisma/schema.prisma) | Database schema (hosts, tables, guests); migrations in [prisma/migrations/](prisma/migrations/) |
+| [prisma/seed.ts](prisma/seed.ts) | The hosts and their tables (dummy values for now) |
+| [lib/data/hosts.ts](lib/data/hosts.ts) | Server-only host reads (`getHosts`, `getHost`) with their tables |
 | [lib/data/guests.ts](lib/data/guests.ts) | Server-only guest data access: requests, approve/reject/cancel, tables, card status, dashboard counts |
-| [lib/data/errors.ts](lib/data/errors.ts) | `GuestError` with a `code` for expected failures (duplicate email, host full, …) |
-| [lib/db.ts](lib/db.ts) | Server-only Prisma client |
+| [lib/data/errors.ts](lib/data/errors.ts) | `GuestError` with a `code` for expected failures (host full, table full, …) |
+| [lib/prisma.ts](lib/prisma.ts) | Prisma client |
 | [lib/guest.ts](lib/guest.ts) | `Guest` type, status enums and `normalizeEmail` (safe in client components) |
 | [lib/seating.ts](lib/seating.ts) | Capacity and table-occupancy calculations |
 | [app/globals.css](app/globals.css) | Theme tokens (brand palette, radius, shadows, fonts) used by every component |

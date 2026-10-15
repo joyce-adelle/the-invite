@@ -1,7 +1,7 @@
 import "server-only";
 
-import { getHost, hosts, type Host } from "@/config/event";
 import { GuestError } from "@/lib/data/errors";
+import { getHost, getHosts } from "@/lib/data/hosts";
 import { prisma } from "@/lib/prisma";
 import {
   CardStatus,
@@ -11,7 +11,12 @@ import {
   type PrismaClient,
 } from "@/lib/generated/prisma/client";
 import { normalizeEmail } from "@/lib/guest";
-import { hostOccupancy, nextAvailableTable, type HostOccupancy } from "@/lib/seating";
+import {
+  hostOccupancy,
+  nextAvailableTable,
+  type HostOccupancy,
+  type HostWithTables,
+} from "@/lib/seating";
 
 // Guest persistence. All Prisma access for guests goes through this module.
 // Expected failures throw GuestError; see lib/data/errors.ts.
@@ -44,7 +49,7 @@ export async function createGuestRequest(input: {
   email: string;
   invitedBy: string;
 }): Promise<Guest> {
-  if (!getHost(input.invitedBy)) {
+  if (!(await getHost(input.invitedBy))) {
     throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
   }
   return prisma.guest.create({
@@ -146,7 +151,8 @@ export type DashboardCounts = {
 };
 
 export async function getDashboardCounts(): Promise<DashboardCounts> {
-  const [byHostAndStatus, byTable] = await Promise.all([
+  const [hosts, byHostAndStatus, byTable] = await Promise.all([
+    getHosts(),
     prisma.guest.groupBy({ by: ["invitedBy", "status"], _count: { _all: true } }),
     approvedByTable(prisma),
   ]);
@@ -171,14 +177,14 @@ export async function getDashboardCounts(): Promise<DashboardCounts> {
 }
 
 export async function getHostOccupancy(hostId: string): Promise<HostOccupancy> {
-  const host = getHost(hostId);
+  const host = await getHost(hostId);
   if (!host) throw new GuestError("UNKNOWN_HOST", `Unknown host "${hostId}".`);
   return readOccupancy(prisma, host);
 }
 
 // --- Internals ---
 
-async function readOccupancy(client: Client, host: Host): Promise<HostOccupancy> {
+async function readOccupancy(client: Client, host: HostWithTables): Promise<HostOccupancy> {
   const [approved, byTable] = await Promise.all([
     client.guest.count({ where: { invitedBy: host.id, status: GuestStatus.APPROVED } }),
     approvedByTable(client, host.tables.map((table) => table.number)),
@@ -205,7 +211,7 @@ async function approvedByTable(client: Client, tableNumbers?: number[]) {
  */
 async function withHostLock<T>(
   id: string,
-  fn: (tx: Prisma.TransactionClient, guest: Guest, host: Host) => Promise<T>,
+  fn: (tx: Prisma.TransactionClient, guest: Guest, host: HostWithTables) => Promise<T>,
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
     const current = await tx.guest.findUnique({ where: { id }, select: { invitedBy: true } });
@@ -214,10 +220,8 @@ async function withHostLock<T>(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seating:${current.invitedBy}`}))`;
 
     const guest = await tx.guest.findUniqueOrThrow({ where: { id } });
-    const host = getHost(guest.invitedBy);
-    if (!host) {
-      throw new GuestError("UNKNOWN_HOST", `Guest's host "${guest.invitedBy}" is not configured.`);
-    }
+    // The foreign key guarantees the host exists.
+    const host = (await getHost(guest.invitedBy, tx))!;
     return fn(tx, guest, host);
   });
 }
@@ -226,7 +230,7 @@ async function withHostLock<T>(
 async function transition(
   id: string,
   from: GuestStatus,
-  data: Prisma.GuestUpdateManyMutationInput,
+  data: Prisma.GuestUncheckedUpdateManyInput,
 ): Promise<Guest> {
   const { count } = await prisma.guest.updateMany({ where: { id, status: from }, data });
   const guest = await getGuest(id);

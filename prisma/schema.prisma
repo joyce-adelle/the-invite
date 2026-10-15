@@ -1,5 +1,4 @@
-// Hosts, tables and the access-card template are application configuration
-// (config/event.ts), not database records. Guests reference a host by its id.
+// Hosts and their tables are seeded (prisma/seed.ts); there is no UI to manage them.
 
 generator client {
   provider = "prisma-client"
@@ -23,15 +22,39 @@ enum CardStatus {
   FAILED
 }
 
+model Host {
+  /// Short stable slug, e.g. "host-01". Set by the seed.
+  id       String  @id
+  name     String
+  capacity Int
+  tables   Table[]
+  guests   Guest[]
+
+  @@map("hosts")
+}
+
+model Table {
+  /// Unique across the event, so a number always means one physical table.
+  number   Int     @id
+  capacity Int
+  hostId   String  @map("host_id")
+  host     Host    @relation(fields: [hostId], references: [id], onDelete: Restrict)
+  guests   Guest[]
+
+  @@index([hostId])
+  @@map("tables")
+}
+
 model Guest {
   id          String      @id @default(uuid()) @db.Uuid
   name        String
   email       String
-  /// Host id from config/event.ts.
   invitedBy   String      @map("invited_by")
+  host        Host        @relation(fields: [invitedBy], references: [id], onDelete: Restrict)
   status      GuestStatus @default(PENDING)
-  /// Table from the host's configuration. Required while APPROVED (CHECK constraint).
+  /// One of the host's tables. Required while APPROVED (CHECK constraint).
   tableNumber Int?        @map("table_number")
+  table       Table?      @relation(fields: [tableNumber], references: [number], onDelete: Restrict)
   cardStatus  CardStatus  @default(NOT_SENT) @map("card_status")
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   approvedAt  DateTime?   @map("approved_at") @db.Timestamptz(3)
