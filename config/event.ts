@@ -1,7 +1,7 @@
 // Application-wide event configuration. 
 
 export const event = {
-  name: "TheInvite",
+  name: "Ìyá Opeke @ 80",
 } as const;
 
 // One template for the whole event. Page 1 is copied unchanged; the guest's
