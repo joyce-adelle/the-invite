@@ -10,17 +10,12 @@ import {
   type Guest,
   type PrismaClient,
 } from "@/lib/generated/prisma/client";
-import { normalizeEmail } from "@/lib/guest";
-import {
-  hostOccupancy,
-  nextAvailableTable,
-  type HostOccupancy,
-  type HostWithTables,
-} from "@/lib/seating";
+import { hostOccupancy, nextAvailableTable, normalizeEmail, normalizeName } from "../utils";
+import { HostOccupancy, HostWithTables } from "@/types/hosts";
+
 
 // Guest persistence. All Prisma access for guests goes through this module.
 // Expected failures throw GuestError; see lib/data/errors.ts.
-
 type Client = PrismaClient | Prisma.TransactionClient;
 
 // --- Reads ---
@@ -49,15 +44,34 @@ export async function createGuestRequest(input: {
   email: string;
   invitedBy: string;
 }): Promise<Guest> {
-  if (!(await getHost(input.invitedBy))) {
-    throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
-  }
-  return prisma.guest.create({
-    data: {
-      name: input.name.trim(),
-      email: normalizeEmail(input.email),
-      invitedBy: input.invitedBy,
-    },
+  const name = normalizeName(input.name);
+
+  return prisma.$transaction(async (tx) => {
+    // Same lock approvals take, so the capacity check can't interleave with one.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seating:${input.invitedBy}`}))`;
+
+    const host = await getHost(input.invitedBy, tx);
+    if (!host) throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
+
+    // PENDING requests don't count; only APPROVED guests use capacity.
+    if ((await readOccupancy(tx, host)).remaining === 0) {
+      throw new GuestError("HOST_FULL", `${host.name} has no invitations left.`);
+    }
+
+    // Names are unique across the event, whichever host or status. The
+    // schema has no unique index on them, so serialise on the name instead.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guest-name:${normalizeName(name)}`}))`;
+    const existing = await tx.guest.findFirst({
+      where: { name: { equals: name, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new GuestError("DUPLICATE_NAME", "A request already exists under this name.");
+    }
+
+    return tx.guest.create({
+      data: { name: normalizeName(name), email: normalizeEmail(input.email), invitedBy: input.invitedBy },
+    });
   });
 }
 
@@ -180,6 +194,15 @@ export async function getHostOccupancy(hostId: string): Promise<HostOccupancy> {
   const host = await getHost(hostId);
   if (!host) throw new GuestError("UNKNOWN_HOST", `Unknown host "${hostId}".`);
   return readOccupancy(prisma, host);
+}
+
+/** True while the host has approved-guest capacity left. False for unknown hosts. */
+export async function hostHasCapacity(hostId: string): Promise<boolean> {
+  const [host, approved] = await Promise.all([
+    prisma.host.findUnique({ where: { id: hostId }, select: { capacity: true } }),
+    prisma.guest.count({ where: { invitedBy: hostId, status: GuestStatus.APPROVED } }),
+  ]);
+  return host !== null && host.capacity > approved;
 }
 
 // --- Internals ---
