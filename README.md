@@ -4,8 +4,8 @@ A lightweight event invitation app. Guests request an invitation from the host w
 
 - **Next.js 16** (App Router, Cache Components) · **React 19** · **Tailwind CSS v4**
 - **PostgreSQL** via **Prisma 7**. Local Postgres runs in Docker; production is any hosted Postgres set through `DATABASE_URL`.
-- **Auth.js** passwordless email sign-in for admins
-- **Resend** for magic-link and access-card emails
+- **Better Auth** admin sign-in: stateless cookie sessions, an email allow-list (`ADMIN_EMAILS`) and one shared password stored as a hash (`ADMIN_PASSWORD_HASH`, create it with `npm run auth:hash-password`)
+- **Resend** for access-card emails
 - **pdf-lib** overlays guest details onto the card template
 
 ## Setup

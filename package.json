@@ -10,17 +10,18 @@
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "auth:hash-password": "tsx scripts/hash-password.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "better-auth": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "dotenv": "^18.0.8",
     "lucide-react": "^1.52.0",
     "next": "16.4.0",
-    "next-auth": "5.0.0-beta.32",
     "pdf-lib": "^1.17.1",
     "pg": "^8.23.1",
     "radix-ui": "^1.7.0",

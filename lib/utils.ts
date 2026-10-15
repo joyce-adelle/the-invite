@@ -2,11 +2,15 @@ import { HostOccupancy, HostWithTables } from "@/types/hosts";
 
 export { cn } from "cn";
 
-/** Whether the email is in ADMIN_EMAILS (comma-separated). */
+/** The emails in ADMIN_EMAILS (comma-separated), normalized. */
+export function getAdminEmails(): string[] {
+  return (process.env.ADMIN_EMAILS ?? "").split(",").map(normalizeEmail).filter(Boolean);
+}
+
+/** Whether the email is in ADMIN_EMAILS. */
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
-  const admins = (process.env.ADMIN_EMAILS ?? "").split(",").map(normalizeEmail);
-  return admins.includes(normalizeEmail(email));
+  return getAdminEmails().includes(normalizeEmail(email));
 }
 
 /** The form every email is stored and compared in. */
