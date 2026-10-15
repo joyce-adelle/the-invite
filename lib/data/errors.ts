@@ -10,8 +10,10 @@ export type GuestErrorCode =
   | "INVALID_STATUS"
   /** The host has no approved-guest capacity left. */
   | "HOST_FULL"
-  /** A request already exists under this name (compared case-insensitively). */
+  /** A guest with the same normalized name already exists (public requests only). */
   | "DUPLICATE_NAME"
+  /** The name has no letters or digits, so it can't be turned into a normalized name. */
+  | "INVALID_NAME"
   /** The requested (or every) table for the host is full. */
   | "TABLE_FULL"
   /** The table number isn't one of the guest's host's tables. */

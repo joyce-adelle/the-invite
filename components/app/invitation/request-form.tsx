@@ -17,6 +17,7 @@ import {
 import Field from "@/components/common/field";
 import { InvitationRequestState } from "@/types/invitation";
 import { RequestConfirmation } from "./request-confirmation";
+import { RequestDuplicate } from "./request-duplicate";
 import { HostUnavailable } from "./host-unavailable";
 
 const initialState: InvitationRequestState = { status: "idle" };
@@ -37,6 +38,7 @@ export function RequestForm({ hostId }: { hostId: string }) {
   }
 
   if (state.status === "success") return <RequestConfirmation />;
+  if (state.status === "duplicate") return <RequestDuplicate />;
   if (state.status === "error" && state.hostFull) return <HostUnavailable />;
 
   function validateField(field: InvitationRequestField, next = values) {

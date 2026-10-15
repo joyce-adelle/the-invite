@@ -37,42 +37,95 @@ export function getGuests(filter: { status?: GuestStatus; invitedBy?: string } =
   return prisma.guest.findMany({ where: filter, orderBy: { createdAt: "desc" } });
 }
 
-// --- Public request ---
+// --- Creating guests ---
 
+/**
+ * A public request. The name is stored exactly as submitted; duplicates are
+ * detected on `normalizedName`, whose unique index is the final safeguard.
+ */
 export async function createGuestRequest(input: {
   name: string;
   email: string;
   invitedBy: string;
 }): Promise<Guest> {
-  const name = normalizeName(input.name);
+  const normalizedName = requireNormalizedName(input.name);
 
-  return prisma.$transaction(async (tx) => {
-    // Same lock approvals take, so the capacity check can't interleave with one.
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seating:${input.invitedBy}`}))`;
+  try {
+    return await prisma.$transaction(async (tx) => {
 
-    const host = await getHost(input.invitedBy, tx);
-    if (!host) throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
+      const host = await getHost(input.invitedBy, tx);
+      if (!host) throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
 
-    // PENDING requests don't count; only APPROVED guests use capacity.
-    if ((await readOccupancy(tx, host)).remaining === 0) {
-      throw new GuestError("HOST_FULL", `${host.name} has no invitations left.`);
-    }
+      // PENDING requests don't count; only APPROVED guests use capacity.
+      if ((await readOccupancy(tx, host)).remaining === 0) {
+        throw new GuestError("HOST_FULL", `${host.name} has no invitations left.`);
+      }
 
-    // Names are unique across the event, whichever host or status. The
-    // schema has no unique index on them, so serialise on the name instead.
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guest-name:${normalizeName(name)}`}))`;
-    const existing = await tx.guest.findFirst({
-      where: { name: { equals: name, mode: "insensitive" } },
-      select: { id: true },
+      // Matches any host and any status.
+      const existing = await tx.guest.findUnique({
+        where: { normalizedName },
+        select: { id: true },
+      });
+      if (existing) throw duplicateName();
+
+      return tx.guest.create({
+        data: {
+          name: input.name,
+          normalizedName,
+          email: normalizeEmail(input.email),
+          invitedBy: input.invitedBy,
+        },
+      });
     });
-    if (existing) {
-      throw new GuestError("DUPLICATE_NAME", "A request already exists under this name.");
-    }
+  } catch (error) {
+    // A concurrent request for the same name got there first.
+    throw isUniqueViolation(error) ? duplicateName() : error;
+  }
+}
 
-    return tx.guest.create({
-      data: { name: normalizeName(name), email: normalizeEmail(input.email), invitedBy: input.invitedBy },
-    });
-  });
+/**
+ * Creates a PENDING guest on an admin's behalf. Unlike public requests, the
+ * display name may repeat: a numeric suffix goes on `normalizedName` only.
+ */
+export async function createGuest(input: {
+  name: string;
+  email: string;
+  invitedBy: string;
+}): Promise<Guest> {
+  const base = requireNormalizedName(input.name);
+
+  return withUniqueNormalizedName(() =>
+    prisma.$transaction(async (tx) => {
+      if (!(await getHost(input.invitedBy, tx))) {
+        throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
+      }
+      return tx.guest.create({
+        data: {
+          name: input.name,
+          normalizedName: await availableNormalizedName(tx, base),
+          email: normalizeEmail(input.email),
+          invitedBy: input.invitedBy,
+        },
+      });
+    }),
+  );
+}
+
+/** Renames a guest, keeping `normalizedName` in step (suffixed if another guest has it). */
+export async function updateGuestName(id: string, name: string): Promise<Guest> {
+  const base = requireNormalizedName(name);
+
+  return withUniqueNormalizedName(() =>
+    prisma.$transaction(async (tx) => {
+      if (!(await tx.guest.findUnique({ where: { id }, select: { id: true } }))) {
+        throw notFound(id);
+      }
+      return tx.guest.update({
+        where: { id },
+        data: { name, normalizedName: await availableNormalizedName(tx, base, id) },
+      });
+    }),
+  );
 }
 
 // --- Admin decisions ---
@@ -265,6 +318,58 @@ async function transition(
     );
   }
   return guest;
+}
+
+function requireNormalizedName(name: string): string {
+  const normalized = normalizeName(name);
+  if (!normalized) {
+    throw new GuestError("INVALID_NAME", "A name needs at least one letter or digit.");
+  }
+  return normalized;
+}
+
+function duplicateName() {
+  return new GuestError("DUPLICATE_NAME", "A guest with this name already exists.");
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+/**
+ * First free value among base, base2, base3…, taken under a lock on the base so
+ * same-name callers queue up. Names that collide across bases (a guest called
+ * "Jane Doe 2" vs. the suffixed "janedoe2") are caught by withUniqueNormalizedName.
+ */
+async function availableNormalizedName(
+  tx: Prisma.TransactionClient,
+  base: string,
+  excludeId?: string,
+): Promise<string> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guest-name:${base}`}))`;
+  const rows = await tx.guest.findMany({
+    where: { normalizedName: { startsWith: base }, ...(excludeId && { id: { not: excludeId } }) },
+    select: { normalizedName: true },
+  });
+  const taken = new Set(rows.map((row) => row.normalizedName));
+
+  let candidate = base;
+  for (let n = 2; taken.has(candidate); n++) candidate = `${base}${n}`;
+  return candidate;
+}
+
+/**
+ * Retries when the unique index rejects the chosen normalizedName because a
+ * concurrent request took it first; the retry sees that row and picks the next.
+ */
+async function withUniqueNormalizedName<T>(fn: () => Promise<T>, attempts = 10): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!isUniqueViolation(error) || attempt >= attempts) throw error;
+    }
+  }
 }
 
 function notFound(id: string) {

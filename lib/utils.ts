@@ -14,9 +14,15 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** Trims and collapses runs of whitespace, so "Ada   Lovelace " and "Ada Lovelace" match. */
+/**
+ * The comparison key behind `Guest.normalizedName`: lowercase letters and digits only,
+ * so "Jane O'Doe" and "JANE ODOE" match. Never use it for the display `name`.
+ */
 export function normalizeName(name: string): string {
-  return name.trim().replace(/\s+/g, " ");
+  return name
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 /**

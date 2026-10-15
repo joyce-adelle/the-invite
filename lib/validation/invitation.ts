@@ -1,4 +1,3 @@
-import { normalizeName } from "../utils";
 import { z } from "zod";
 
 // Shared by the request form (instant feedback) and the server action
@@ -10,20 +9,15 @@ export const NAME_MAX_LENGTH = 80;
 export const EMAIL_MAX_LENGTH = 254;
 
 // Letters in any script, plus the punctuation real names use.
-const NAME_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M} '’.-]*$/u;
+const NAME_PATTERN = /^\p{L}[\p{L}\p{M} '’.-]*$/u;
 
 export const invitationRequestSchema = z.object({
   name: z
     .string()
-    .transform(normalizeName)
-    .pipe(
-      z
-        .string()
-        .min(1, "Please enter your full name.")
-        .min(NAME_MIN_LENGTH, "Please enter your full name.")
-        .max(NAME_MAX_LENGTH, `Your name can be at most ${NAME_MAX_LENGTH} characters.`)
-        .regex(NAME_PATTERN, "Please use letters, spaces, hyphens, apostrophes or full stops only."),
-    ),
+    .min(1, "Please enter your full name.")
+    .min(NAME_MIN_LENGTH, "Please enter your full name.")
+    .max(NAME_MAX_LENGTH, `Your name can be at most ${NAME_MAX_LENGTH} characters.`)
+    .regex(NAME_PATTERN, "Please use letters, spaces, hyphens, apostrophes or full stops only."),
   email: z.email("Please enter a valid email address.")
     .min(1, "Please enter your email address.")
     .max(EMAIL_MAX_LENGTH, "That email address is too long."),

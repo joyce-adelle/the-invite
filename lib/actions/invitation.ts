@@ -32,14 +32,7 @@ export async function submitInvitationRequest(
     await createGuestRequest({ ...parsed.data, invitedBy: host.id });
     return { status: "success" };
   } catch (error) {
-    if (isGuestError(error, "DUPLICATE_NAME")) {
-      return {
-        status: "error",
-        fieldErrors: {
-          name: "An invitation request has already been submitted using this name.",
-        },
-      };
-    }
+    if (isGuestError(error, "DUPLICATE_NAME")) return { status: "duplicate" };
     if (isGuestError(error, "HOST_FULL")) return { status: "error", hostFull: true };
     if (isGuestError(error, "UNKNOWN_HOST")) return { status: "error", message: UNKNOWN_HOST };
     console.error("Invitation request failed", error);

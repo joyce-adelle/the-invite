@@ -46,19 +46,23 @@ model Table {
 }
 
 model Guest {
-  id          String      @id @default(uuid()) @db.Uuid
-  name        String
-  email       String
-  invitedBy   String      @map("invited_by")
-  host        Host        @relation(fields: [invitedBy], references: [id], onDelete: Restrict)
-  status      GuestStatus @default(PENDING)
+  id             String      @id @default(uuid()) @db.Uuid
+  /// Exactly as the guest (or admin) entered it; printed on the access card.
+  name           String
+  /// Lowercase alphanumerics of `name`, used only for duplicate detection. Admins may create
+  /// guests with the same name, so a numeric suffix keeps it unique ("janedoe", "janedoe2"…).
+  normalizedName String      @unique @map("normalized_name")
+  email          String
+  invitedBy      String      @map("invited_by")
+  host           Host        @relation(fields: [invitedBy], references: [id], onDelete: Restrict)
+  status         GuestStatus @default(PENDING)
   /// One of the host's tables. Required while APPROVED (CHECK constraint).
-  tableNumber Int?        @map("table_number")
-  table       Table?      @relation(fields: [tableNumber], references: [number], onDelete: Restrict)
-  cardStatus  CardStatus  @default(NOT_SENT) @map("card_status")
-  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  approvedAt  DateTime?   @map("approved_at") @db.Timestamptz(3)
-  cardSentAt  DateTime?   @map("card_sent_at") @db.Timestamptz(3)
+  tableNumber    Int?        @map("table_number")
+  table          Table?      @relation(fields: [tableNumber], references: [number], onDelete: Restrict)
+  cardStatus     CardStatus  @default(NOT_SENT) @map("card_status")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  approvedAt     DateTime?   @map("approved_at") @db.Timestamptz(3)
+  cardSentAt     DateTime?   @map("card_sent_at") @db.Timestamptz(3)
 
   // Capacity and occupancy are derived from APPROVED rows per host and per table.
   @@index([email])
