@@ -48,6 +48,7 @@ Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`
 | [lib/data/errors.ts](lib/data/errors.ts) | `GuestError` with a `code` for expected failures (host full, table full, …) |
 | [lib/prisma.ts](lib/prisma.ts) | Prisma client |
 | [lib/guest.ts](lib/guest.ts) | `Guest` type, status enums and `normalizeEmail` (safe in client components) |
+| [lib/invitations.ts](lib/invitations.ts) | Approval, table-move and resend flows: a seating decision followed by sending the card |
 | [lib/seating.ts](lib/seating.ts) | Capacity and table-occupancy calculations |
 | [lib/data/support.ts](lib/data/support.ts) | Server-only data access for help requests: create, list, counts, resolve |
 | [lib/actions/support.ts](lib/actions/support.ts) | The public "Need help?" server action (validates, saves, never reveals guest info) |
@@ -74,5 +75,8 @@ Requests are saved in PostgreSQL (`invitation_support_requests`). There is no em
 
 - One access card admits one person; couples need two cards.
 - An email address can be used for more than one request (e.g. a couple sharing an address). Each request is still one card for one person.
-- Only approved guests count towards capacity. Approval assigns the next table with a free seat.
-- Changing a guest's table does not resend their card. Admins resend it explicitly.
+- Only approved guests count towards capacity. Pending, rejected and cancelled guests never use a place or a seat.
+- A pending, rejected or cancelled guest can be approved. Approval re-reads the guest, checks the host still has a place, and seats them at the host's first table with a free seat, all under a per-host lock so simultaneous approvals can't overfill a table or approve one guest twice. If there is no room the error says what to do (cancel another invitation to free a place or seat), and the admin can then approve again. Only pending requests can be rejected.
+- The access card is marked **sent** only after the email succeeds; until then it is "not sent", and a failed send is "failed" so it can be resent. Emails are simulated for now ([lib/access-card.ts](lib/access-card.ts)).
+- Admins can move an approved guest to another of their host's tables, never past its capacity. A move automatically sends the guest a new card.
+- Cancelling an approved invitation keeps the record (table, approval and card details, plus a cancellation time) and frees the seat and the host's place at once. Nothing is deleted, and the guest can be approved again later.

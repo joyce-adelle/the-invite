@@ -179,20 +179,38 @@ export async function updateGuestName(id: string, name: string): Promise<Guest> 
 
 /**
  * Approves a PENDING, REJECTED or CANCELLED guest and seats them at the host's
- * next table with a free seat. Resets card status so a fresh card is sent.
+ * first table with a free seat. Everything is decided on freshly read data
+ * inside a transaction that holds the host's seating lock, so simultaneous
+ * approvals can't take the same seat, and approving the same guest twice can't
+ * succeed twice.
+ *
+ * When there is no room the error says what to do (free a place or a seat),
+ * and the admin can approve again afterwards. Approving a cancelled guest
+ * again clears `cancelledAt`: the invitation is live once more.
+ *
+ * The card is left NOT_SENT: it only becomes SENT once the email really goes
+ * out (lib/invitations.ts).
  */
 export function approveGuest(id: string): Promise<Guest> {
   return withHostLock(id, async (tx, guest, host) => {
     if (guest.status === GuestStatus.APPROVED) {
       throw new GuestError("INVALID_STATUS", "This guest is already approved.");
     }
+
+    // Only APPROVED guests use capacity, so a pending, rejected or cancelled guest never does.
     const occupancy = await readOccupancy(tx, host);
     if (occupancy.remaining === 0) {
-      throw new GuestError("HOST_FULL", `${host.name} has no invitations left.`);
+      throw new GuestError(
+        "HOST_FULL",
+        `${host.name} has no invitations left. Cancel another invitation to free a place, then approve again.`,
+      );
     }
     const tableNumber = nextAvailableTable(occupancy);
     if (tableNumber === null) {
-      throw new GuestError("TABLE_FULL", `Every table for ${host.name} is full.`);
+      throw new GuestError(
+        "TABLE_FULL",
+        `Every table for ${host.name} is full, so there's no seat for this guest. Cancel another invitation to free a seat, then approve again.`,
+      );
     }
     return tx.guest.update({
       where: { id },
@@ -202,42 +220,70 @@ export function approveGuest(id: string): Promise<Guest> {
         approvedAt: new Date(),
         cardStatus: CardStatus.NOT_SENT,
         cardSentAt: null,
+        cancelledAt: null,
       },
     });
   });
 }
 
-/** PENDING → REJECTED. Rejected guests are not emailed. */
+/** PENDING → REJECTED. Rejected guests are not emailed and never use capacity. */
 export function rejectGuest(id: string): Promise<Guest> {
   return transition(id, GuestStatus.PENDING, {
     status: GuestStatus.REJECTED,
   });
 }
 
-/** APPROVED → CANCELLED, freeing the seat and the host's capacity. */
+/**
+ * APPROVED → CANCELLED. The record stays, with its table, approval time and
+ * card details as a history; only the status changes and `cancelledAt` is set.
+ * Capacity and seats are counted from APPROVED guests, so they free up at once.
+ */
 export function cancelGuest(id: string): Promise<Guest> {
-  return transition(id, GuestStatus.APPROVED, {
-    status: GuestStatus.CANCELLED,
-    tableNumber: null,
+  return withHostLock(id, async (tx, guest) => {
+    if (guest.status !== GuestStatus.APPROVED) {
+      throw new GuestError(
+        "INVALID_STATUS",
+        `Only approved invitations can be cancelled; this guest is ${guest.status.toLowerCase()}.`,
+      );
+    }
+    return tx.guest.update({
+      where: { id },
+      data: { status: GuestStatus.CANCELLED, cancelledAt: new Date() },
+    });
   });
 }
 
-/** Moves an APPROVED guest to another of their host's tables. Does not resend the card. */
-export function updateGuestTable(id: string, tableNumber: number): Promise<Guest> {
+/**
+ * Moves an APPROVED guest to another of their host's tables, never past the
+ * table's capacity. `moved` is false when they were already there. A move
+ * leaves them holding a card for the wrong table, so the card goes back to
+ * NOT_SENT until a new one is delivered (lib/invitations.ts).
+ */
+export function updateGuestTable(
+  id: string,
+  tableNumber: number,
+): Promise<{ guest: Guest; moved: boolean }> {
   return withHostLock(id, async (tx, guest, host) => {
     if (guest.status !== GuestStatus.APPROVED) {
       throw new GuestError("INVALID_STATUS", "Only approved guests have a table.");
     }
-    if (guest.tableNumber === tableNumber) return guest;
+    if (guest.tableNumber === tableNumber) return { guest, moved: false };
 
     const table = (await readOccupancy(tx, host)).tables.find((t) => t.number === tableNumber);
     if (!table) {
       throw new GuestError("UNKNOWN_TABLE", `Table ${tableNumber} isn't one of ${host.name}'s tables.`);
     }
     if (table.remaining === 0) {
-      throw new GuestError("TABLE_FULL", `Table ${tableNumber} is full.`);
+      throw new GuestError(
+        "TABLE_FULL",
+        `Table ${tableNumber} is full. Choose a table with a free seat, or move another guest off it first.`,
+      );
     }
-    return tx.guest.update({ where: { id }, data: { tableNumber } });
+    const updated = await tx.guest.update({
+      where: { id },
+      data: { tableNumber, cardStatus: CardStatus.NOT_SENT },
+    });
+    return { guest: updated, moved: true };
   });
 }
 

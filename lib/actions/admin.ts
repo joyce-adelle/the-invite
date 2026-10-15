@@ -4,17 +4,15 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireAdmin } from "@/lib/admin-session";
-import { sendAccessCard } from "@/lib/access-card";
-import { GuestError, isGuestError } from "@/lib/data/errors";
-import {
-  approveGuest,
-  cancelGuest,
-  getGuest,
-  rejectGuest,
-  updateGuestTable,
-} from "@/lib/data/guests";
+import { isGuestError } from "@/lib/data/errors";
+import { cancelGuest, rejectGuest } from "@/lib/data/guests";
 import { resolveSupportRequest } from "@/lib/data/support";
-import { GuestStatus, type Guest } from "@/types/guest";
+import {
+  approveInvitation,
+  moveInvitationTable,
+  resendAccessCard,
+  type CardDelivery,
+} from "@/lib/invitations";
 
 // Every admin mutation goes through here. Server actions are public POST
 // endpoints, so each one checks the session itself and validates its input.
@@ -57,10 +55,24 @@ async function run(
   }
 }
 
+/** Words a card delivery outcome for the toast; a failed send is a notice, not a success. */
+function withDelivery(
+  done: string,
+  delivery: CardDelivery,
+): string | { message: string; notice: true } {
+  if (delivery.status === "FAILED") {
+    return {
+      message: `${done}, but the access card couldn't be sent. Use “Resend access card” to try again.`,
+      notice: true,
+    };
+  }
+  return `${done}. Access card sent${delivery.simulated ? " (simulated)" : ""}.`;
+}
+
 export async function approveGuestAction(id: string): Promise<AdminActionResult> {
   return run(id, async (guestId) => {
-    const guest: Guest = await approveGuest(guestId);
-    return `${guest.name} approved and seated at table ${guest.tableNumber}.`;
+    const { guest, delivery } = await approveInvitation(guestId);
+    return withDelivery(`${guest.name} approved and seated at table ${guest.tableNumber}`, delivery);
   });
 }
 
@@ -88,25 +100,23 @@ export async function changeGuestTableAction(
     return { ok: false, message: "Choose a valid table." };
   }
   return run(id, async (guestId) => {
-    const guest = await updateGuestTable(guestId, table.data);
-    return `${guest.name} moved to table ${guest.tableNumber}.`;
+    const { guest, delivery } = await moveInvitationTable(guestId, table.data);
+    if (!delivery) return `${guest.name} is already at table ${guest.tableNumber}.`;
+    return withDelivery(`${guest.name} moved to table ${guest.tableNumber}`, delivery);
   });
 }
 
 /** Sends an approved guest their access card, including when it was sent before. */
 export async function resendAccessCardAction(id: string): Promise<AdminActionResult> {
   return run(id, async (guestId) => {
-    const guest = await getGuest(guestId);
-    if (!guest) throw new GuestError("GUEST_NOT_FOUND", NOT_FOUND);
-    if (guest.status !== GuestStatus.APPROVED) {
-      throw new GuestError("INVALID_STATUS", "Only approved guests have an access card.");
+    const { guest, delivery } = await resendAccessCard(guestId);
+    if (delivery.status === "FAILED") {
+      return {
+        message: `The access card for ${guest.name} couldn't be sent. Please try again.`,
+        notice: true,
+      };
     }
-
-    if (await sendAccessCard(guest)) return `Access card sent to ${guest.email}.`;
-    return {
-      message: "Sending access cards isn't set up yet, so no email was sent.",
-      notice: true,
-    };
+    return `Access card sent to ${guest.email}${delivery.simulated ? " (simulated)" : ""}.`;
   });
 }
 

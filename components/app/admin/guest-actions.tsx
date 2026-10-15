@@ -1,7 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ArrowRightLeft, Ban, Check, Loader2, MailPlus, MoreHorizontal, X } from "lucide-react";
+import {
+  ArrowRightLeft,
+  Ban,
+  Check,
+  Loader2,
+  MailPlus,
+  MoreHorizontal,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { ChangeTableDialog } from "@/components/app/admin/change-table-dialog";
@@ -37,12 +45,22 @@ function isRedirectError(error: unknown): boolean {
  * Row actions. Only the buttons that make sense for the guest's current status
  * are shown, and every result (success or failure) is reported in a toast.
  */
-export function GuestActions({ guest, tables }: { guest: AdminGuest; tables: TableOccupancy[] }) {
+export function GuestActions({
+  guest,
+  tables,
+}: {
+  guest: AdminGuest;
+  tables: TableOccupancy[];
+}) {
   const [busy, startTransition] = useTransition();
   const [running, setRunning] = useState<string | null>(null);
   const [dialog, setDialog] = useState<OpenDialog>(null);
 
-  function perform(name: string, action: () => Promise<AdminActionResult>, onSuccess?: () => void) {
+  function perform(
+    name: string,
+    action: () => Promise<AdminActionResult>,
+    onSuccess?: () => void,
+  ) {
     setRunning(name);
     startTransition(async () => {
       try {
@@ -58,9 +76,12 @@ export function GuestActions({ guest, tables }: { guest: AdminGuest; tables: Tab
         // An expired session makes the action redirect to the login page. The
         // router is already navigating there, so there's nothing to report.
         if (isRedirectError(error)) return;
-        toast.error("We couldn't reach the server. Check your connection and try again.", {
-          duration: 8000,
-        });
+        toast.error(
+          "We couldn't reach the server. Check your connection and try again.",
+          {
+            duration: 8000,
+          },
+        );
       } finally {
         setRunning(null);
       }
@@ -80,7 +101,11 @@ export function GuestActions({ guest, tables }: { guest: AdminGuest; tables: Tab
               disabled={busy}
               aria-label={`Actions for ${guest.name}`}
             >
-              {busy ? <Loader2 className="animate-spin" aria-hidden /> : <MoreHorizontal aria-hidden />}
+              {busy ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <MoreHorizontal aria-hidden />
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -88,13 +113,20 @@ export function GuestActions({ guest, tables }: { guest: AdminGuest; tables: Tab
               <ArrowRightLeft aria-hidden /> Change table
             </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={() => perform("resend", () => resendAccessCardAction(guest.id))}
+              onSelect={() =>
+                perform("resend", () => resendAccessCardAction(guest.id))
+              }
             >
               <MailPlus aria-hidden />
-              {guest.cardStatus === CardStatus.NOT_SENT ? "Send access card" : "Resend access card"}
+              {guest.cardStatus === CardStatus.NOT_SENT
+                ? "Send access card"
+                : "Resend access card"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => setDialog("cancel")}>
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => setDialog("cancel")}
+            >
               <Ban aria-hidden /> Cancel invitation
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -119,7 +151,7 @@ export function GuestActions({ guest, tables }: { guest: AdminGuest; tables: Tab
           open={dialog === "cancel"}
           onOpenChange={(open) => setDialog(open ? "cancel" : null)}
           title={`Cancel ${guest.name}'s invitation?`}
-          description="Their table and place with the host are freed straight away. They are not emailed."
+          description="Their seat and place with the host are freed straight away, and the table can go to someone else. The record is kept, you can approve them again later, and they are not emailed."
           confirmLabel="Cancel invitation"
           cancelLabel="Keep invitation"
           onConfirm={() => perform("cancel", () => cancelGuestAction(guest.id))}
@@ -135,14 +167,27 @@ export function GuestActions({ guest, tables }: { guest: AdminGuest; tables: Tab
         onClick={() => perform("approve", () => approveGuestAction(guest.id))}
         disabled={busy}
       >
-        {running === "approve" ? <Loader2 className="animate-spin" aria-hidden /> : <Check aria-hidden />}
+        {running === "approve" ? (
+          <Loader2 className="animate-spin" aria-hidden />
+        ) : (
+          <Check aria-hidden />
+        )}
         Approve
       </Button>
 
       {guest.status === GuestStatus.PENDING && (
         <>
-          <Button variant="outline" size="sm" onClick={() => setDialog("reject")} disabled={busy}>
-            {running === "reject" ? <Loader2 className="animate-spin" aria-hidden /> : <X aria-hidden />}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDialog("reject")}
+            disabled={busy}
+          >
+            {running === "reject" ? (
+              <Loader2 className="animate-spin" aria-hidden />
+            ) : (
+              <X aria-hidden />
+            )}
             Reject
           </Button>
           <ConfirmDialog

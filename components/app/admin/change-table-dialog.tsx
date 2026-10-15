@@ -53,8 +53,8 @@ export function ChangeTableDialog({
         <DialogHeader>
           <DialogTitle>Change table</DialogTitle>
           <DialogDescription>
-            Move {guest.name} to another of {guest.hostName}&apos;s tables. Their access card is
-            not resent.
+            Move {guest.name} to another of {guest.hostName}&apos;s tables. They are sent a new
+            access card for the new table.
           </DialogDescription>
         </DialogHeader>
 
@@ -67,14 +67,18 @@ export function ChangeTableDialog({
             <SelectContent>
               {tables.map((table) => {
                 const current = table.number === guest.tableNumber;
-                const detail = table.remaining === 0 ? "full" : `${table.remaining} free`;
+                const detail = current
+                  ? "current"
+                  : table.remaining === 0
+                    ? "full"
+                    : `${table.remaining} free`;
                 return (
                   <SelectItem
                     key={table.number}
                     value={String(table.number)}
                     disabled={table.remaining === 0 && !current}
                   >
-                    Table {table.number} · {current ? "current" : detail}
+                    Table {table.number} · {table.occupied}/{table.capacity} seated · {detail}
                   </SelectItem>
                 );
               })}
