@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { SupportForm } from "@/components/app/invitation/support-form";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ export function HostUnavailable() {
       <Link href="/" className={cn(buttonVariants({ variant: "outline" }), "mt-8")}>
         Back to the start
       </Link>
+      <SupportForm className="mt-10 w-full border-t pt-6" />
     </div>
   );
 }

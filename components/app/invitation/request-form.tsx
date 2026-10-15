@@ -18,6 +18,7 @@ import Field from "@/components/common/field";
 import { InvitationRequestState } from "@/types/invitation";
 import { RequestConfirmation } from "./request-confirmation";
 import { RequestDuplicate } from "./request-duplicate";
+import { SupportForm } from "./support-form";
 import { HostUnavailable } from "./host-unavailable";
 
 const initialState: InvitationRequestState = { status: "idle" };
@@ -38,7 +39,9 @@ export function RequestForm({ hostId }: { hostId: string }) {
   }
 
   if (state.status === "success") return <RequestConfirmation />;
-  if (state.status === "duplicate") return <RequestDuplicate />;
+  if (state.status === "duplicate") {
+    return <RequestDuplicate initialName={values.name} initialEmail={values.email} />;
+  }
   if (state.status === "error" && state.hostFull) return <HostUnavailable />;
 
   function validateField(field: InvitationRequestField, next = values) {
@@ -70,84 +73,91 @@ export function RequestForm({ hostId }: { hostId: string }) {
   const formError = state.status === "error" ? state.message : undefined;
 
   return (
-    <form
-      action={formAction}
-      onSubmit={handleSubmit}
-      noValidate
-      className="space-y-6"
-    >
-      <input type="hidden" name="hostId" value={hostId} />
+    <>
+      <form
+        action={formAction}
+        onSubmit={handleSubmit}
+        noValidate
+        className="space-y-6"
+      >
+        <input type="hidden" name="hostId" value={hostId} />
 
-      {formError && (
-        <p
-          role="alert"
-          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          {formError}
-        </p>
-      )}
+        {formError && (
+          <p
+            role="alert"
+            className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {formError}
+          </p>
+        )}
 
-      <Field
-        id="name"
-        label="Full name"
-        error={errors.name}
-        input={
-          <Input
-            id="name"
-            name="name"
-            type="text"
-            autoComplete="name"
-            placeholder="As it should appear on your card"
-            maxLength={NAME_MAX_LENGTH * 2}
-            value={values.name}
-            onChange={(event) => handleChange("name", event.target.value)}
-            onBlur={() => values.name && validateField("name")}
-            aria-invalid={errors.name ? true : undefined}
-            aria-describedby={errors.name ? "name-error" : undefined}
-            className="h-11 bg-card px-3.5"
-            required
-          />
-        }
+        <Field
+          id="name"
+          label="Full name"
+          error={errors.name}
+          input={
+            <Input
+              id="name"
+              name="name"
+              type="text"
+              autoComplete="name"
+              placeholder="As it should appear on your card"
+              maxLength={NAME_MAX_LENGTH * 2}
+              value={values.name}
+              onChange={(event) => handleChange("name", event.target.value)}
+              onBlur={() => values.name && validateField("name")}
+              aria-invalid={errors.name ? true : undefined}
+              aria-describedby={errors.name ? "name-error" : undefined}
+              className="h-11 bg-card px-3.5"
+              required
+            />
+          }
+        />
+
+        <Field
+          id="email"
+          label="Email address"
+          error={errors.email}
+          input={
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              placeholder="you@example.com"
+              maxLength={EMAIL_MAX_LENGTH * 2}
+              value={values.email}
+              onChange={(event) => handleChange("email", event.target.value)}
+              onBlur={() => values.email && validateField("email")}
+              aria-invalid={errors.email ? true : undefined}
+              aria-describedby={errors.email ? "email-error" : undefined}
+              className="h-11 bg-card px-3.5"
+              required
+            />
+          }
+        />
+
+        <div className="space-y-3">
+          <Button
+            type="submit"
+            size="lg"
+            className="h-11 w-full text-base"
+            disabled={pending}
+          >
+            {pending && <Loader2 className="animate-spin" aria-hidden />}
+            {pending ? "Sending your request…" : "Request my invitation"}
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            Each invitation admits one guest.
+          </p>
+        </div>
+      </form>
+      <SupportForm
+        initialName={values.name}
+        initialEmail={values.email}
+        className="mt-8 border-t pt-6"
       />
-
-      <Field
-        id="email"
-        label="Email address"
-        error={errors.email}
-        input={
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            inputMode="email"
-            placeholder="you@example.com"
-            maxLength={EMAIL_MAX_LENGTH * 2}
-            value={values.email}
-            onChange={(event) => handleChange("email", event.target.value)}
-            onBlur={() => values.email && validateField("email")}
-            aria-invalid={errors.email ? true : undefined}
-            aria-describedby={errors.email ? "email-error" : undefined}
-            className="h-11 bg-card px-3.5"
-            required
-          />
-        }
-      />
-
-      <div className="space-y-3">
-        <Button
-          type="submit"
-          size="lg"
-          className="h-11 w-full text-base"
-          disabled={pending}
-        >
-          {pending && <Loader2 className="animate-spin" aria-hidden />}
-          {pending ? "Sending your request…" : "Request my invitation"}
-        </Button>
-        <p className="text-center text-xs text-muted-foreground">
-          Each invitation admits one guest.
-        </p>
-      </div>
-    </form>
+    </>
   );
 }

@@ -1,5 +1,6 @@
 import HostGrid from "@/components/app/home/host-grid";
 import HostGridSkeleton from "@/components/app/home/host-grid-skeleton";
+import { SupportForm } from "@/components/app/invitation/support-form";
 import { PageHeader } from "@/components/common/page-header";
 import { PublicShell } from "@/components/layout/public-shell";
 import { Suspense } from "react";
@@ -26,6 +27,8 @@ export default function Home() {
           <HostGrid />
         </Suspense>
       </section>
+
+      <SupportForm className="mt-14 border-t pt-8" />
     </PublicShell>
   );
 }

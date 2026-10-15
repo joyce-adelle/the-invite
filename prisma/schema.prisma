@@ -22,6 +22,18 @@ enum CardStatus {
   FAILED
 }
 
+enum SupportIssueType {
+  CARD_NOT_RECEIVED
+  UNABLE_TO_REGISTER
+  DETAILS_INCORRECT
+  OTHER
+}
+
+enum SupportRequestStatus {
+  OPEN
+  RESOLVED
+}
+
 model Host {
   /// Short stable slug, e.g. "host-01". Set by the seed.
   id       String  @id
@@ -69,4 +81,23 @@ model Guest {
   @@index([invitedBy, status])
   @@index([status, tableNumber])
   @@map("guests")
+}
+
+/// A message sent from the public "Need help?" form. Deliberately not linked to
+/// a guest: the sender may not have registered, and the form must never reveal
+/// whether a name or email exists.
+model InvitationSupportRequest {
+  id        String               @id @default(uuid()) @db.Uuid
+  name      String
+  /// Trimmed and lowercased, like Guest.email.
+  email     String
+  issueType SupportIssueType     @map("issue_type")
+  /// Plain text; empty when the sender chose not to add one (required for OTHER).
+  message   String
+  status    SupportRequestStatus @default(OPEN)
+  createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@map("invitation_support_requests")
 }

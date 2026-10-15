@@ -9,10 +9,13 @@ export function PublicShell({
 }: React.ComponentProps<"main">) {
   return (
     <main
-      className={cn("flex flex-1 flex-col justify-center py-16 sm:py-24", className)}
+      className={cn(
+        "flex flex-1 flex-col justify-center py-16 sm:py-20",
+        className,
+      )}
       {...props}
     >
-      <Container size="narrow">{children}</Container>
+      <Container>{children}</Container>
     </main>
   );
 }

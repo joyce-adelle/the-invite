@@ -13,6 +13,7 @@ import {
   rejectGuest,
   updateGuestTable,
 } from "@/lib/data/guests";
+import { resolveSupportRequest } from "@/lib/data/support";
 import { GuestStatus, type Guest } from "@/types/guest";
 
 // Every admin mutation goes through here. Server actions are public POST
@@ -27,6 +28,7 @@ const guestIdSchema = z.uuid();
 const tableNumberSchema = z.number().int().positive();
 
 const NOT_FOUND = "That guest could not be found.";
+const SUPPORT_NOT_FOUND = "That help request could not be found.";
 const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
 
 async function run(
@@ -106,4 +108,23 @@ export async function resendAccessCardAction(id: string): Promise<AdminActionRes
       notice: true,
     };
   });
+}
+
+/** Marks a help request resolved. Resolving one that is already resolved succeeds quietly. */
+export async function resolveSupportRequestAction(id: string): Promise<AdminActionResult> {
+  await requireAdmin();
+
+  const parsed = guestIdSchema.safeParse(id);
+  if (!parsed.success) return { ok: false, message: SUPPORT_NOT_FOUND };
+
+  try {
+    const request = await resolveSupportRequest(parsed.data);
+    // The header's notification count lives in the layout, so refresh from there down.
+    revalidatePath("/admin", "layout");
+    if (!request) return { ok: false, message: SUPPORT_NOT_FOUND };
+    return { ok: true, message: `Request from ${request.name} marked as resolved.` };
+  } catch (error) {
+    console.error("Resolving support request failed", error);
+    return { ok: false, message: GENERIC_ERROR };
+  }
 }

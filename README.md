@@ -49,10 +49,26 @@ Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`
 | [lib/prisma.ts](lib/prisma.ts) | Prisma client |
 | [lib/guest.ts](lib/guest.ts) | `Guest` type, status enums and `normalizeEmail` (safe in client components) |
 | [lib/seating.ts](lib/seating.ts) | Capacity and table-occupancy calculations |
+| [lib/data/support.ts](lib/data/support.ts) | Server-only data access for help requests: create, list, counts, resolve |
+| [lib/actions/support.ts](lib/actions/support.ts) | The public "Need help?" server action (validates, saves, never reveals guest info) |
+| [lib/validation/support.ts](lib/validation/support.ts) | Zod rules and length limits for the help form, shared by the form and the server |
+| [components/app/invitation/support-form.tsx](components/app/invitation/support-form.tsx) | The help form shown on the invitation pages |
+| [app/admin/(protected)/support/](app/admin/(protected)/support/page.tsx) | Admin "Help requests" page; the header bell ([support-notifications.tsx](components/app/admin/support-notifications.tsx)) shows the latest open ones |
+| [tests/](tests/) | `npm test`: validation, server action and data-layer tests |
 | [app/globals.css](app/globals.css) | Theme tokens (brand palette, radius, shadows, fonts) used by every component |
 | [components/ui/](components/ui/) | shadcn/ui components (Radix base); add more with `npx shadcn@latest add <name>` |
 | [components/layout/](components/layout/) | `Container`, `PublicShell`, `AdminShell`, `PageHeader` |
 | [template/New.pdf](template/New.pdf) | The single access-card template (page 1 unchanged, page 2 gets the overlay) |
+
+## Help requests
+
+Guests who can't register, or haven't received their card, can send a message from the invitation pages (below the form, and on the "already registered" and "no places left" screens). It needs no registration and is never linked to a guest record, so nothing about the form's response reveals whether a name or email is registered.
+
+Requests are saved in PostgreSQL (`invitation_support_requests`). There is no email: admins see them in the app, via the bell in the admin header (open count plus the latest few) and the **Help requests** page, where they can be filtered open/resolved and marked resolved. The header count refreshes when the page does or when a request is resolved, not live.
+
+## Tests
+
+`npm test` runs Node's built-in test runner. The database tests write to `DATABASE_URL`, so they skip themselves unless it points at a local database, and they delete what they create.
 
 ## Business rules
 
