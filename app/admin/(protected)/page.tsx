@@ -1,23 +1,12 @@
 import { Suspense } from "react";
 
-import { PageHeader } from "@/components/common/page-header";
-import { requireAdmin } from "@/lib/admin-session";
+import { Dashboard } from "@/components/app/admin/dashboard";
+import { DashboardSkeleton } from "@/components/app/admin/dashboard-skeleton";
 
-export default function AdminDashboardPage() {
+export default function AdminDashboardPage({ searchParams }: PageProps<"/admin">) {
   return (
-    <Suspense fallback={null}>
-      <Dashboard />
+    <Suspense fallback={<DashboardSkeleton />}>
+      <Dashboard searchParams={searchParams} />
     </Suspense>
-  );
-}
-
-async function Dashboard() {
-  await requireAdmin();
-
-  return (
-    <PageHeader
-      title="Dashboard"
-      description="You're signed in. Guest management will live here."
-    />
   );
 }

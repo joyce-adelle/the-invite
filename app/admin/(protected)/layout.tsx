@@ -1,8 +1,6 @@
 import { Suspense } from "react";
 
-import { SignOutButton } from "@/components/app/admin/sign-out-button";
-import { AdminShell } from "@/components/layout/admin-shell";
-import { requireAdmin } from "@/lib/admin-session";
+import { AdminFrame } from "@/components/app/admin/admin-frame";
 
 export const metadata = {
   title: "Admin",
@@ -17,9 +15,4 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <AdminFrame>{children}</AdminFrame>
     </Suspense>
   );
-}
-
-async function AdminFrame({ children }: { children: React.ReactNode }) {
-  const { user } = await requireAdmin();
-  return <AdminShell actions={<SignOutButton email={user.email} />}>{children}</AdminShell>;
 }

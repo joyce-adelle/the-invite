@@ -2,6 +2,8 @@
 
 export const event = {
   name: "Ìyá Opeke @ 80",
+  /** Timezone dates are shown in on the admin dashboard. */
+  timeZone: "Africa/Lagos",
 } as const;
 
 // One template for the whole event. Page 1 is copied unchanged; the guest's

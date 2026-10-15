@@ -1,12 +1,10 @@
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
 
-import { LoginForm } from "@/components/app/admin/login-form";
+import { LoginGate } from "@/components/app/admin/login-gate";
 import { PageHeader } from "@/components/common/page-header";
 import { PublicShell } from "@/components/layout/public-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { event } from "@/config/event";
-import { getAdminSession } from "@/lib/admin-session";
 
 export const metadata = {
   title: "Admin sign in",
@@ -24,9 +22,4 @@ export default function AdminLoginPage() {
       </div>
     </PublicShell>
   );
-}
-
-async function LoginGate() {
-  if (await getAdminSession()) redirect("/admin");
-  return <LoginForm />;
 }

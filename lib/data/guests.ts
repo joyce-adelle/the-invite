@@ -11,6 +11,7 @@ import {
   type PrismaClient,
 } from "@/lib/generated/prisma/client";
 import { hostOccupancy, nextAvailableTable, normalizeEmail, normalizeName } from "../utils";
+import type { AdminGuest } from "@/types/guest";
 import { HostOccupancy, HostWithTables } from "@/types/hosts";
 
 
@@ -35,6 +36,52 @@ export function findGuestsByEmail(email: string): Promise<Guest[]> {
 /** Newest first. Filter by status and/or host id. */
 export function getGuests(filter: { status?: GuestStatus; invitedBy?: string } = {}): Promise<Guest[]> {
   return prisma.guest.findMany({ where: filter, orderBy: { createdAt: "desc" } });
+}
+
+export type AdminGuestPage = {
+  guests: AdminGuest[];
+  total: number;
+  /** The page actually returned: the requested one, pulled back into range. */
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+/** Admin lists: one page of guests with their host's name. The review queue is oldest first. */
+export async function getAdminGuests(
+  filter: { status?: GuestStatus; invitedBy?: string },
+  { page, pageSize }: { page: number; pageSize: number },
+): Promise<AdminGuestPage> {
+  const orderBy: Prisma.GuestOrderByWithRelationInput[] = [
+    filter.status === GuestStatus.PENDING
+      ? { createdAt: "asc" }
+      : filter.status === GuestStatus.APPROVED
+        ? { approvedAt: "desc" }
+        : { createdAt: "desc" },
+    // Keeps pages stable when several guests share a timestamp.
+    { id: "asc" },
+  ];
+
+  const total = await prisma.guest.count({ where: filter });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  // E.g. the last guest on the final page was just actioned.
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+
+  const rows = await prisma.guest.findMany({
+    where: filter,
+    orderBy,
+    skip: (currentPage - 1) * pageSize,
+    take: pageSize,
+    include: { host: { select: { name: true } } },
+  });
+
+  return {
+    guests: rows.map(({ host, ...guest }) => ({ ...guest, hostName: host.name })),
+    total,
+    page: currentPage,
+    pageSize,
+    totalPages,
+  };
 }
 
 // --- Creating guests ---
@@ -214,7 +261,7 @@ export async function updateCardStatus(id: string, cardStatus: CardStatus): Prom
 export type DashboardCounts = {
   total: number;
   byStatus: Record<GuestStatus, number>;
-  hosts: (HostOccupancy & { pending: number })[];
+  hosts: (HostOccupancy & { pending: number; byStatus: Record<GuestStatus, number> })[];
 };
 
 export async function getDashboardCounts(): Promise<DashboardCounts> {
@@ -239,6 +286,9 @@ export async function getDashboardCounts(): Promise<DashboardCounts> {
     hosts: hosts.map((host) => ({
       ...hostOccupancy(host, count(host.id, GuestStatus.APPROVED), byTable),
       pending: count(host.id, GuestStatus.PENDING),
+      byStatus: Object.fromEntries(
+        Object.values(GuestStatus).map((status) => [status, count(host.id, status)]),
+      ) as Record<GuestStatus, number>,
     })),
   };
 }
