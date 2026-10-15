@@ -1,6 +1,6 @@
 import { ArrowLeft } from "lucide-react";
-import InviteContent from "@/components/app/home/invitation/invite-content";
-import InviteSkeleton from "@/components/app/home/invitation/invite-skeleton";
+import InviteContent from "@/components/app/invitation/invite-content";
+import InviteSkeleton from "@/components/app/invitation/invite-skeleton";
 import Link from "next/link";
 import { PublicShell } from "@/components/layout/public-shell";
 import { Suspense } from "react";
