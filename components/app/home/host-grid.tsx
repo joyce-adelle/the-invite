@@ -19,7 +19,7 @@ export default async function HostGrid() {
         <li key={host.id}>
           <Link
             href={`/invite/${host.id}`}
-            className="group flex h-full items-center justify-between gap-4 rounded-xl border border-border bg-card px-5 py-5 shadow-xs transition-all outline-none hover:-translate-y-0.5 hover:border-gold hover:shadow-md focus-visible:border-gold focus-visible:ring-3 focus-visible:ring-ring/40"
+            className="group flex h-full items-center justify-between gap-4 rounded-xl border border-gold/30 bg-card/90 px-5 py-5 shadow-xs backdrop-blur-sm transition-all outline-none hover:-translate-y-0.5 hover:border-gold hover:bg-card hover:shadow-md focus-visible:border-gold focus-visible:ring-3 focus-visible:ring-ring/40"
           >
             <span className="font-display text-xl leading-snug font-medium text-primary">
               {host.name}

@@ -28,7 +28,7 @@ export default async function InviteContent({
             : undefined
         }
       />
-      <div className="mt-10 rounded-2xl border border-border bg-card/60 p-6 shadow-sm sm:p-8">
+      <div className="mt-10 rounded-2xl border border-gold/30 border-t-gold bg-card/90 p-6 shadow-md backdrop-blur-sm sm:p-8">
         {open ? <RequestForm hostId={host.id} /> : <HostUnavailable />}
       </div>
     </>

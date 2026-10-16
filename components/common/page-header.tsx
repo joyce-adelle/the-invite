@@ -31,7 +31,11 @@ export function PageHeader({
         <h1 className="mt-3 font-display text-4xl font-medium text-balance text-primary sm:text-5xl">
           {title}
         </h1>
-        <div aria-hidden className="mt-5 h-px w-16 bg-gold" />
+        <div aria-hidden className="mt-5 flex items-center gap-3">
+          <span className="h-px w-12 bg-linear-to-r from-transparent to-gold" />
+          <span className="size-1.5 rotate-45 bg-gold" />
+          <span className="h-px w-12 bg-linear-to-l from-transparent to-gold" />
+        </div>
         {description && (
           <p className="mt-5 max-w-prose text-pretty text-muted-foreground">{description}</p>
         )}

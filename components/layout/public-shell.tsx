@@ -1,4 +1,5 @@
 import { Container } from "@/components/layout/container";
+import { FloralBackdrop } from "@/components/layout/floral-backdrop";
 import { cn } from "@/lib/utils";
 
 /** Page wrapper for the guest-facing pages: centred, narrow, generous spacing. */
@@ -10,11 +11,12 @@ export function PublicShell({
   return (
     <main
       className={cn(
-        "flex flex-1 flex-col justify-center py-16 sm:py-20",
+        "relative isolate flex flex-1 flex-col justify-center overflow-hidden py-16 sm:py-20",
         className,
       )}
       {...props}
     >
+      <FloralBackdrop />
       <Container>{children}</Container>
     </main>
   );
