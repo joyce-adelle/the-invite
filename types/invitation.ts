@@ -1,10 +1,9 @@
 import { Guest } from "./guest";
 import { InvitationRequestFieldErrors } from "@/lib/validation/invitation";
 
+/** What the request form shows. A saved request or a duplicate name moves to a page of its own instead. */
 export type InvitationRequestState =
     | { status: "idle" }
-    | { status: "success" }
-    | { status: "duplicate" }
     | {
         status: "error";
         /** Page-level problem rather than a field one. */

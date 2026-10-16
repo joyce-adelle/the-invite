@@ -16,8 +16,7 @@ import {
 } from "@/lib/validation/invitation";
 import Field from "@/components/common/field";
 import { InvitationRequestState } from "@/types/invitation";
-import { RequestConfirmation } from "./request-confirmation";
-import { RequestDuplicate } from "./request-duplicate";
+import { rememberDetails } from "./remembered-details";
 import { SupportForm } from "./support-form";
 import { HostUnavailable } from "./host-unavailable";
 
@@ -38,10 +37,6 @@ export function RequestForm({ hostId }: { hostId: string }) {
     if (state.status === "error") setErrors(state.fieldErrors ?? {});
   }
 
-  if (state.status === "success") return <RequestConfirmation />;
-  if (state.status === "duplicate") {
-    return <RequestDuplicate initialName={values.name} initialEmail={values.email} />;
-  }
   if (state.status === "error" && state.hostFull) return <HostUnavailable />;
 
   function validateField(field: InvitationRequestField, next = values) {
@@ -67,7 +62,11 @@ export function RequestForm({ hostId }: { hostId: string }) {
         (field) => result.fieldErrors[field],
       );
       if (first) document.getElementById(first)?.focus();
+      return;
     }
+    // The help page (reached when the name is already registered) fills the
+    // guest's details in from here, so they aren't typed twice or put in a URL.
+    rememberDetails(values);
   }
 
   const formError = state.status === "error" ? state.message : undefined;

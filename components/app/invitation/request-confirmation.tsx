@@ -1,10 +1,6 @@
-import Link from "next/link";
 import { MailCheck } from "lucide-react";
 
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-
-/** Shown after a request is saved. Must not suggest the guest is already approved. */
+/** The page shown after a request is saved. Must not suggest the guest is already approved. */
 export function RequestConfirmation() {
   return (
     <div role="status" className="flex flex-col items-center py-4 text-center">
@@ -22,12 +18,6 @@ export function RequestConfirmation() {
       <p className="mt-3 max-w-sm text-sm text-pretty text-muted-foreground">
         There&apos;s nothing more you need to do for now.
       </p>
-      <Link
-        href="/"
-        className={cn(buttonVariants({ variant: "outline" }), "mt-8")}
-      >
-        Back to the start
-      </Link>
     </div>
   );
 }
