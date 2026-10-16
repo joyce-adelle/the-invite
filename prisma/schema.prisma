@@ -1,0 +1,104 @@
+// Hosts and their tables are seeded (prisma/seed.ts); there is no UI to manage them.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum GuestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum CardStatus {
+  NOT_SENT
+  SENT
+  FAILED
+}
+
+enum SupportIssueType {
+  CARD_NOT_RECEIVED
+  UNABLE_TO_REGISTER
+  DETAILS_INCORRECT
+  OTHER
+}
+
+enum SupportRequestStatus {
+  OPEN
+  RESOLVED
+}
+
+model Host {
+  /// Short stable slug, e.g. "host-01". Set by the seed.
+  id       String  @id
+  name     String
+  capacity Int
+  tables   Table[]
+  guests   Guest[]
+
+  @@map("hosts")
+}
+
+model Table {
+  /// Unique across the event, so a number always means one physical table.
+  number   Int     @id
+  capacity Int
+  hostId   String  @map("host_id")
+  host     Host    @relation(fields: [hostId], references: [id], onDelete: Restrict)
+  guests   Guest[]
+
+  @@index([hostId])
+  @@map("tables")
+}
+
+model Guest {
+  id             String      @id @default(uuid()) @db.Uuid
+  /// Exactly as the guest (or admin) entered it; printed on the access card.
+  name           String
+  /// Lowercase alphanumerics of `name`, used only for duplicate detection. Admins may create
+  /// guests with the same name, so a numeric suffix keeps it unique ("janedoe", "janedoe2"…).
+  normalizedName String      @unique @map("normalized_name")
+  email          String
+  invitedBy      String      @map("invited_by")
+  host           Host        @relation(fields: [invitedBy], references: [id], onDelete: Restrict)
+  status         GuestStatus @default(PENDING)
+  /// One of the host's tables. Required while APPROVED (CHECK constraint).
+  tableNumber    Int?        @map("table_number")
+  table          Table?      @relation(fields: [tableNumber], references: [number], onDelete: Restrict)
+  cardStatus     CardStatus  @default(NOT_SENT) @map("card_status")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  approvedAt     DateTime?   @map("approved_at") @db.Timestamptz(3)
+  cardSentAt     DateTime?   @map("card_sent_at") @db.Timestamptz(3)
+  cancelledAt    DateTime?   @map("cancelled_at") @db.Timestamptz(3)
+
+  // Capacity and occupancy are derived from APPROVED rows per host and per table.
+  @@index([email])
+  @@index([invitedBy, status])
+  @@index([status, tableNumber])
+  @@map("guests")
+}
+
+/// A message sent from the public "Need help?" form. Deliberately not linked to
+/// a guest: the sender may not have registered, and the form must never reveal
+/// whether a name or email exists.
+model InvitationSupportRequest {
+  id        String               @id @default(uuid()) @db.Uuid
+  name      String
+  /// Trimmed and lowercased, like Guest.email.
+  email     String
+  issueType SupportIssueType     @map("issue_type")
+  /// Plain text; empty when the sender chose not to add one (required for OTHER).
+  message   String
+  status    SupportRequestStatus @default(OPEN)
+  createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@map("invitation_support_requests")
+}
