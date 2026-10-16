@@ -1,3 +1,4 @@
+import { Guest } from "./guest";
 import { InvitationRequestFieldErrors } from "@/lib/validation/invitation";
 
 export type InvitationRequestState =
@@ -12,3 +13,11 @@ export type InvitationRequestState =
         hostFull?: boolean;
         fieldErrors?: InvitationRequestFieldErrors;
     };
+
+export type CardDelivery = { status: "SENT" } | { status: "FAILED" };
+
+export type InvitationResult = {
+    /** The guest as they are now, including the card status after delivery. */
+    guest: Guest;
+    delivery: CardDelivery;
+};

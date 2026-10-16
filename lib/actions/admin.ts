@@ -59,6 +59,7 @@ async function run(
 function withDelivery(
   done: string,
   delivery: CardDelivery,
+  email: string,
 ): string | { message: string; notice: true } {
   if (delivery.status === "FAILED") {
     return {
@@ -66,13 +67,17 @@ function withDelivery(
       notice: true,
     };
   }
-  return `${done}. Access card sent${delivery.simulated ? " (simulated)" : ""}.`;
+  return `${done}. Access card emailed to ${email}.`;
 }
 
 export async function approveGuestAction(id: string): Promise<AdminActionResult> {
   return run(id, async (guestId) => {
     const { guest, delivery } = await approveInvitation(guestId);
-    return withDelivery(`${guest.name} approved and seated at table ${guest.tableNumber}`, delivery);
+    return withDelivery(
+      `${guest.name} approved and seated at table ${guest.tableNumber}`,
+      delivery,
+      guest.email,
+    );
   });
 }
 
@@ -102,7 +107,7 @@ export async function changeGuestTableAction(
   return run(id, async (guestId) => {
     const { guest, delivery } = await moveInvitationTable(guestId, table.data);
     if (!delivery) return `${guest.name} is already at table ${guest.tableNumber}.`;
-    return withDelivery(`${guest.name} moved to table ${guest.tableNumber}`, delivery);
+    return withDelivery(`${guest.name} moved to table ${guest.tableNumber}`, delivery, guest.email);
   });
 }
 
@@ -116,7 +121,7 @@ export async function resendAccessCardAction(id: string): Promise<AdminActionRes
         notice: true,
       };
     }
-    return `Access card sent to ${guest.email}${delivery.simulated ? " (simulated)" : ""}.`;
+    return `Access card emailed to ${guest.email}.`;
   });
 }
 

@@ -6,8 +6,9 @@ import path from "node:path";
 import fontkit, { type Font as ShapingFont } from "@pdf-lib/fontkit";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
-import { accessCard } from "@/config/event";
+import { accessCard, event } from "@/config/event";
 import { getPublicHost } from "@/lib/data/hosts";
+import { sendEmail, type EmailClient } from "@/lib/email";
 import { GuestStatus, type Guest } from "@/types/guest";
 
 // Access cards. The card is built from ONE template for the whole event:
@@ -264,20 +265,82 @@ export async function createGuestAccessCard(guest: Guest): Promise<Uint8Array> {
   return createAccessCardPdf({ ...guest, hostName: host.name });
 }
 
+// --- The email ---
+
+/** Why the card is being sent, which changes what the email says. */
+export type CardEmailReason = "approved" | "table-changed" | "resent";
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** A safe file name for the attachment, e.g. "access-card-ada-lovelace.pdf". */
+function attachmentName(name: string): string {
+  const slug = name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return `access-card-${slug || "guest"}.pdf`;
+}
+
+function cardEmail(guest: Guest, reason: CardEmailReason) {
+  const intro = {
+    approved: `Your invitation to ${event.name} has been approved. Your access card is attached to this email as a PDF.`,
+    "table-changed": `Your table for ${event.name} has changed, and you are now at table ${guest.tableNumber}. Your updated access card is attached. Please use it instead of any earlier one.`,
+    resent: `Here is your access card for ${event.name} again, attached as a PDF.`,
+  }[reason];
+  const advice =
+    "Please keep it, and show it when you arrive, either printed or on your phone. Each card admits one guest only.";
+  const closing = "We look forward to seeing you.";
+
+  const subject =
+    reason === "table-changed"
+      ? `Your updated access card for ${event.name}`
+      : `Your access card for ${event.name}`;
+
+  const text = [`Dear ${guest.name},`, intro, advice, closing].join("\n\n");
+
+  const paragraph = (content: string) => `<p style="margin:0 0 16px;line-height:1.55">${escapeHtml(content)}</p>`;
+  const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:15px;color:#2a1a20;max-width:520px">
+<h1 style="margin:0 0 20px;font-size:20px;font-weight:600;color:#660033">${escapeHtml(event.name)}</h1>
+${paragraph(`Dear ${guest.name},`)}${paragraph(intro)}${paragraph(advice)}${paragraph(closing)}</div>`;
+
+  return { subject, text, html };
+}
+
 /**
- * Emails the guest their access card, whatever its current card status.
- * Resolves once the email has been accepted for delivery and throws if it
- * wasn't, so callers record SENT or FAILED from the outcome. A card that can't
- * be generated counts as a failed send.
+ * Emails the guest their access card as a PDF attachment, whatever its current
+ * card status. Resolves once Resend has accepted the email and throws if it
+ * didn't, so callers record SENT or FAILED from the outcome. A card that can't
+ * be generated, or a missing or invalid email configuration, counts as a
+ * failed send.
  *
- * The card is real; the EMAIL is SIMULATED for now: nothing leaves the server
- * and the send always succeeds. `simulated` lets the UI say so. To send for
- * real, pass `pdf` to Resend as an attachment and return `{ simulated: false }`.
+ * `client` is for tests: they pass a stand-in so nothing is ever really sent.
  */
-export async function sendAccessCard(guest: Guest): Promise<{ simulated: boolean }> {
+export async function sendAccessCard(
+  guest: Guest,
+  { reason = "approved", client }: { reason?: CardEmailReason; client?: EmailClient } = {},
+): Promise<{ id: string }> {
   const pdf = await createGuestAccessCard(guest);
-  console.info(
-    `[simulated email] access card for guest ${guest.id}, table ${guest.tableNumber} (${pdf.length} bytes)`,
+  const { subject, text, html } = cardEmail(guest, reason);
+
+  return sendEmail(
+    {
+      to: guest.email,
+      subject,
+      text,
+      html,
+      attachments: [{ filename: attachmentName(guest.name), content: Buffer.from(pdf) }],
+    },
+    `access-card-${reason}/${guest.id}`,
+    { client },
   );
-  return { simulated: true };
 }

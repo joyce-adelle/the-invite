@@ -1,3 +1,4 @@
+import "./no-email"; // first: nothing here may send real email
 import "dotenv/config";
 
 import assert from "node:assert/strict";
@@ -29,8 +30,9 @@ const FIXTURE_HOSTS = [
   { id: "test-b", name: "Test B", capacity: 5, tables: [[9011, 2], [9012, 2]] },
 ] as const;
 
-const ok = async () => ({ simulated: true });
-const failing = async (): Promise<{ simulated: boolean }> => {
+// Stand-ins for sending the card, so no test ever emails anyone.
+const ok = async () => ({ id: "test-email-id" });
+const failing = async (): Promise<{ id: string }> => {
   throw new Error("mail server unreachable");
 };
 function counting() {
@@ -39,7 +41,7 @@ function counting() {
     sent,
     send: async (guest: Guest) => {
       sent.push(guest);
-      return { simulated: true };
+      return { id: "test-email-id" };
     },
   };
 }
@@ -110,7 +112,7 @@ describe("invitation approval rules", { skip: !isLocal && "DATABASE_URL is not a
 
       const result = await approveInvitation(guest.id, async (g) => {
         duringSend = await fresh(g.id);
-        return { simulated: true };
+        return { id: "test-email-id" };
       });
 
       // While the email was being sent the guest was already approved, but the card was not "sent".
@@ -126,9 +128,26 @@ describe("invitation approval rules", { skip: !isLocal && "DATABASE_URL is not a
       assert.ok(result.guest.cardSentAt instanceof Date);
     });
 
-    it("reports a simulated delivery when the default sender is used", async () => {
-      const result = await approveInvitation((await pending()).id);
-      assert.deepEqual(result.delivery, { status: "SENT", simulated: true });
+    it("marks the card FAILED, rather than pretending, when email isn't configured", async () => {
+      // The default sender with no RESEND_API_KEY (tests blank it): nothing is sent.
+      const guest = await pending();
+      const result = await approveInvitation(guest.id);
+      assert.deepEqual(result.delivery, { status: "FAILED" });
+      const stored = await fresh(guest.id);
+      assert.equal(stored.status, "APPROVED");
+      assert.equal(stored.cardStatus, "FAILED");
+    });
+
+    it("tells the email why it is being sent: approval, table change or resend", async () => {
+      const reasons: (string | undefined)[] = [];
+      const send = async (_guest: Guest, options?: { reason?: string }) => {
+        reasons.push(options?.reason);
+        return { id: "test-email-id" };
+      };
+      const guest = (await approveInvitation((await pending()).id, send)).guest;
+      await moveInvitationTable(guest.id, 9002, send);
+      await resendAccessCard(guest.id, send);
+      assert.deepEqual(reasons, ["approved", "table-changed", "resent"]);
     });
 
     it("keeps the approval and marks the card FAILED when the email fails", async () => {
@@ -458,7 +477,7 @@ describe("invitation approval rules", { skip: !isLocal && "DATABASE_URL is not a
       let duringSend: Guest | undefined;
       await moveInvitationTable(guest.id, 9002, async (g) => {
         duringSend = await fresh(g.id);
-        return { simulated: true };
+        return { id: "test-email-id" };
       });
       assert.equal(duringSend?.cardStatus, "NOT_SENT");
     });

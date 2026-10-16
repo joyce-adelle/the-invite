@@ -1,6 +1,6 @@
 import "server-only";
 
-import { sendAccessCard } from "@/lib/access-card";
+import { sendAccessCard, type CardEmailReason } from "@/lib/access-card";
 import { GuestError } from "@/lib/data/errors";
 import {
   approveGuest,
@@ -9,6 +9,7 @@ import {
   updateGuestTable,
 } from "@/lib/data/guests";
 import { CardStatus, GuestStatus, type Guest } from "@/types/guest";
+import { CardDelivery, InvitationResult } from "@/types/invitation";
 
 // Invitation business flows: a seating decision followed by delivering the
 // access card. The seating rules themselves (status checks, capacity, table
@@ -21,25 +22,19 @@ import { CardStatus, GuestStatus, type Guest } from "@/types/guest";
 
 type SendCard = typeof sendAccessCard;
 
-export type CardDelivery =
-  | { status: "SENT"; simulated: boolean }
-  | { status: "FAILED" };
-
-export type InvitationResult = {
-  /** The guest as they are now, including the card status after delivery. */
-  guest: Guest;
-  delivery: CardDelivery;
-};
-
 /**
  * Sends the card, then records SENT or FAILED. The card is never marked SENT
  * before the send has succeeded.
  */
-async function deliverAccessCard(guest: Guest, send: SendCard): Promise<InvitationResult> {
+async function deliverAccessCard(
+  guest: Guest,
+  send: SendCard,
+  reason: CardEmailReason,
+): Promise<InvitationResult> {
   let delivery: CardDelivery;
   try {
-    const { simulated } = await send(guest);
-    delivery = { status: "SENT", simulated };
+    await send(guest, { reason });
+    delivery = { status: "SENT" };
   } catch (error) {
     console.error(`Sending the access card for guest ${guest.id} failed`, error);
     delivery = { status: "FAILED" };
@@ -59,7 +54,7 @@ export async function approveInvitation(
   id: string,
   send: SendCard = sendAccessCard,
 ): Promise<InvitationResult> {
-  return deliverAccessCard(await approveGuest(id), send);
+  return deliverAccessCard(await approveGuest(id), send, "approved");
 }
 
 /**
@@ -74,7 +69,7 @@ export async function moveInvitationTable(
 ): Promise<{ guest: Guest; delivery: CardDelivery | null }> {
   const { guest, moved } = await updateGuestTable(id, tableNumber);
   if (!moved) return { guest, delivery: null };
-  return deliverAccessCard(guest, send);
+  return deliverAccessCard(guest, send, "table-changed");
 }
 
 /** Sends an approved guest their card again, including when it was sent before. */
@@ -87,5 +82,5 @@ export async function resendAccessCard(
   if (guest.status !== GuestStatus.APPROVED) {
     throw new GuestError("INVALID_STATUS", "Only approved guests have an access card.");
   }
-  return deliverAccessCard(guest, send);
+  return deliverAccessCard(guest, send, "resent");
 }

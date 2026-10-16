@@ -1,3 +1,4 @@
+import "./no-email"; // first: nothing here may send real email
 import "dotenv/config";
 
 import assert from "node:assert/strict";
@@ -25,6 +26,7 @@ import {
 } from "@/lib/access-card";
 import { prisma } from "@/lib/prisma";
 import type { Guest } from "@/types/guest";
+import { accepted, fakeEmailClient, rejected } from "./fake-email";
 
 // Generates real cards from the real template and reads them back: which pages
 // there are, what is on them, and that the source files are left alone.
@@ -198,6 +200,21 @@ describe("access card PDF", () => {
     it("keeps page 2's original artwork and only adds to it", async () => {
       const { doc, page2 } = await readCard(await makeCard());
       assert.equal(fingerprint(doc, page2, true), fingerprint(template, template.getPage(1), true));
+    });
+
+    it("never modifies or writes to the source files", async () => {
+      const files = [accessCard.templatePath, accessCard.fontPath];
+      const state = () => ({
+        hashes: files.map((file) => sha(readFileSync(file))),
+        listing: ["template", "template/fonts"].map((dir) =>
+          readdirSync(dir)
+            .filter((name) => name !== ".DS_Store") // macOS adds this to any folder it opens
+            .map((name) => `${dir}/${name}:${statSync(`${dir}/${name}`).size}`),
+        ),
+      });
+      const before = state();
+      await Promise.all(["A", "B", "C"].map((name) => makeCard({ name })));
+      assert.deepEqual(state(), before);
     });
 
   });
@@ -530,16 +547,105 @@ describe("card for a stored guest", { skip: !isLocal && "DATABASE_URL is not a l
   });
 
   it("fails clearly when the host can't be found, so the send is recorded as failed", async () => {
+    const { client, calls } = fakeEmailClient();
     await assert.rejects(createGuestAccessCard(guest({ invitedBy: "test-missing" })), /no longer exists/);
-    await assert.rejects(sendAccessCard(guest({ invitedBy: "test-missing" })), /no longer exists/);
+    await assert.rejects(sendAccessCard(guest({ invitedBy: "test-missing" }), { client }), /no longer exists/);
+    assert.equal(calls.length, 0, "nothing is sent without a card");
   });
 
-  it("generates the card, then reports a simulated send (the email is simulated, the card is real)", async () => {
-    assert.deepEqual(await sendAccessCard(guest()), { simulated: true });
-  });
+  describe("emailing the card", () => {
+    // These use a stand-in mail client, so nothing is ever really sent.
+    process.env.EMAIL_FROM ??= "TheInvite <invites@example.com>";
 
-  it("fails, so the card is recorded as FAILED, when there is no card to send", async () => {
-    await assert.rejects(sendAccessCard(guest({ status: "CANCELLED" })), /isn't approved/);
-    await assert.rejects(sendAccessCard(guest({ tableNumber: null })), /isn't approved with a table/);
+    it("emails the guest their card as a PDF attachment", async () => {
+      const { client, calls } = fakeEmailClient(accepted("mail-1"));
+      assert.deepEqual(await sendAccessCard(guest(), { client }), { id: "mail-1" });
+
+      assert.equal(calls.length, 1);
+      const { payload } = calls[0];
+      assert.equal(payload.to, "ada@example.com");
+      assert.equal(payload.subject, "Your access card for Ìyá Opeke @ 80");
+      assert.match(payload.text, /^Dear Ada Lovelace,/);
+      assert.match(payload.text, /has been approved/);
+      assert.match(payload.text, /admits one guest only/);
+
+      assert.equal(payload.attachments?.length, 1);
+      const [attachment] = payload.attachments!;
+      assert.equal(attachment.filename, "access-card-ada-lovelace.pdf");
+      assert.equal(attachment.content.subarray(0, 5).toString(), "%PDF-");
+    });
+
+    it("attaches the real card: two pages, with this guest's name, host and table", async () => {
+      const { client, calls } = fakeEmailClient();
+      await sendAccessCard(guest({ tableNumber: 12 }), { client });
+
+      const { doc, drawn } = await readCard(new Uint8Array(calls[0].payload.attachments![0].content));
+      assert.equal(doc.getPageCount(), 2);
+      assert.equal(oneLine(drawn, fields[0]).text, "ADA LOVELACE");
+      assert.equal(oneLine(drawn, fields[1]).text, "LOVELACE FAMILY");
+      assert.ok(drawn.some((d) => d.text === "TABLE 12"));
+    });
+
+    it("says what is new when the table has changed", async () => {
+      const { client, calls } = fakeEmailClient();
+      await sendAccessCard(guest({ tableNumber: 5 }), { client, reason: "table-changed" });
+      const { subject, text } = calls[0].payload;
+      assert.equal(subject, "Your updated access card for Ìyá Opeke @ 80");
+      assert.match(text, /you are now at table 5/);
+      assert.match(text, /instead of any earlier one/);
+    });
+
+    it("says it is a resend when an admin sends it again", async () => {
+      const { client, calls } = fakeEmailClient();
+      await sendAccessCard(guest(), { client, reason: "resent" });
+      assert.equal(calls[0].payload.subject, "Your access card for Ìyá Opeke @ 80");
+      assert.match(calls[0].payload.text, /again, attached as a PDF/);
+    });
+
+    it("gives each kind of send its own idempotency key prefix", async () => {
+      const { client, calls } = fakeEmailClient();
+      const id = "00000000-0000-4000-8000-000000000002";
+      for (const reason of ["approved", "table-changed", "resent"] as const) {
+        await sendAccessCard(guest(), { client, reason });
+      }
+      assert.deepEqual(
+        calls.map((c) => c.options.idempotencyKey.replace(/-[0-9a-f-]{36}$/, "")),
+        [`access-card-approved/${id}`, `access-card-table-changed/${id}`, `access-card-resent/${id}`],
+      );
+    });
+
+    it("can't be made to inject HTML or odd file names through a guest's name", async () => {
+      const { client, calls } = fakeEmailClient();
+      await sendAccessCard(guest({ name: `<script>alert(1)</script> "O'Brien" & Co ../../x` }), { client });
+      const { html, text, attachments } = calls[0].payload;
+
+      assert.ok(!html.includes("<script"), "no raw tag in the HTML");
+      assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt; &quot;O&#39;Brien&quot; &amp; Co/);
+      assert.match(text, /^Dear <script>/, "the plain-text part is plain text, not HTML");
+      assert.match(attachments![0].filename, /^access-card-[a-z0-9-]+\.pdf$/);
+    });
+
+    it("makes a readable attachment name from names with accents", async () => {
+      const { client, calls } = fakeEmailClient();
+      await sendAccessCard(guest({ name: "Ọláwálé Ṣẹ̀gun" }), { client });
+      assert.equal(calls[0].payload.attachments![0].filename, "access-card-olawale-segun.pdf");
+    });
+
+    it("fails, so the card is recorded as FAILED, when Resend refuses the email", async () => {
+      const { client } = fakeEmailClient(rejected(403, "invalid_from_address", "The domain is not verified"));
+      await assert.rejects(sendAccessCard(guest(), { client }), /The domain is not verified/);
+    });
+
+    it("fails, so the card is recorded as FAILED, when email isn't configured", async () => {
+      // No client given: the real one, with no API key (the tests blank it). Nothing is sent.
+      await assert.rejects(sendAccessCard(guest()), /RESEND_API_KEY is not set/);
+    });
+
+    it("sends nothing when there is no card to send", async () => {
+      const { client, calls } = fakeEmailClient();
+      await assert.rejects(sendAccessCard(guest({ status: "CANCELLED" }), { client }), /isn't approved/);
+      await assert.rejects(sendAccessCard(guest({ tableNumber: null }), { client }), /isn't approved with a table/);
+      assert.equal(calls.length, 0);
+    });
   });
 });

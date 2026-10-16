@@ -34,7 +34,14 @@ All environment variables are server-only. See [.env.example](.env.example) for 
 
 ### Resend
 
-Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`.
+Access cards are emailed with [Resend](https://resend.com), as a PDF attachment. Verify your sending domain at <https://resend.com/domains>, then set:
+
+- `RESEND_API_KEY`: your API key.
+- `EMAIL_FROM`: the sender, e.g. `"TheInvite <invites@your-domain.com>"`, on the verified domain.
+
+Without these settings nothing is sent: a card email fails, the card is marked **failed** and an admin can resend it once email is configured.
+
+A card email goes out when a guest is approved, when their table changes, and when an admin resends it. Transient problems (rate limiting, Resend outages, network errors) are retried up to three times with the same idempotency key, so a retry can't deliver the email twice. Other errors, such as an unverified domain or an invalid address, fail straight away. The code is in [lib/email.ts](lib/email.ts) and `sendAccessCard` in [lib/access-card.ts](lib/access-card.ts).
 
 ## Where things live
 
@@ -62,6 +69,7 @@ Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`
 | [template/access-card-template.pdf](template/access-card-template.pdf) | The single access-card template (page 1 unchanged, page 2 gets the overlay) |
 | [template/fonts/](template/fonts/) | The card font (Noto Sans Bold, Latin subset) and its licence; see its README |
 | [lib/access-card.ts](lib/access-card.ts) | Server-only card generation (`createAccessCardPdf`) and the card email (`sendAccessCard`) |
+| [lib/email.ts](lib/email.ts) | Server-only Resend wrapper: reads the key and sender from the environment, retries transient failures |
 
 ## Help requests
 
@@ -82,7 +90,7 @@ Cards are generated on demand from **one** template, [template/access-card-templ
 
 ## Tests
 
-`npm test` runs Node's built-in test runner. The database tests write to `DATABASE_URL`, so they skip themselves unless it points at a local database, and they delete what they create.
+`npm test` runs Node's built-in test runner. The database tests write to `DATABASE_URL`, so they skip themselves unless it points at a local database, and they delete what they create. Tests never send real email: they pass in a stand-in mail client, and [tests/no-email.ts](tests/no-email.ts) blanks the API key so a test that forgets would fail rather than send.
 
 ## Business rules
 
@@ -90,6 +98,6 @@ Cards are generated on demand from **one** template, [template/access-card-templ
 - An email address can be used for more than one request (e.g. a couple sharing an address). Each request is still one card for one person.
 - Only approved guests count towards capacity. Pending, rejected and cancelled guests never use a place or a seat.
 - A pending, rejected or cancelled guest can be approved. Approval re-reads the guest, checks the host still has a place, and seats them at the host's first table with a free seat, all under a per-host lock so simultaneous approvals can't overfill a table or approve one guest twice. If there is no room the error says what to do (cancel another invitation to free a place or seat), and the admin can then approve again. Only pending requests can be rejected.
-- The access card is marked **sent** only after the email succeeds; until then it is "not sent", and a failed send is "failed" so it can be resent. The card itself is real; sending the email is simulated for now (`sendAccessCard` in [lib/access-card.ts](lib/access-card.ts)) and needs Resend wired in.
+- The access card is marked **sent** only after the email succeeds; until then it is "not sent", and a failed send is "failed" so it can be resent. The email is sent with Resend (`sendAccessCard` in [lib/access-card.ts](lib/access-card.ts)); with email not configured it fails instead of pretending to send.
 - Admins can move an approved guest to another of their host's tables, never past its capacity. A move automatically sends the guest a new card.
 - Cancelling an approved invitation keeps the record (table, approval and card details, plus a cancellation time) and frees the seat and the host's place at once. Nothing is deleted, and the guest can be approved again later.
