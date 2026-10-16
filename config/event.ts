@@ -1,7 +1,7 @@
 // Application-wide event configuration. 
 
 export const event = {
-  name: "Ìyá Opeke @ 80",
+  name: "Ìyá Òpékè @ 80",
   /** Timezone dates are shown in on the admin dashboard. */
   timeZone: "Africa/Lagos",
 } as const;

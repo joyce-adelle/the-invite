@@ -318,20 +318,49 @@ function cardEmail(guest: Guest, hostName: string) {
     `${closing}\n${event.name}`,
   ].join("\n\n");
 
-  const paragraph = (content: string) =>
-    `<p style="margin:0 0 18px;line-height:1.6">${escapeHtml(content)}</p>`;
-  const detailRows = details
+  // Email clients ignore most modern CSS, so this is the classic safe build:
+  // nested tables, inline styles and web-safe fonts, centred in a 560px card.
+  const serif = "Georgia,'Times New Roman',serif";
+  const sans = "Helvetica,Arial,sans-serif";
+  const e = escapeHtml;
+
+  const detailCells = details
     .map(
-      ([label, value]) =>
-        `<tr><td style="padding:4px 18px 4px 0;color:#6b5e63">${escapeHtml(label)}</td><td style="padding:4px 0;font-weight:600;color:#660033">${escapeHtml(value)}</td></tr>`,
+      ([label, value], index) =>
+        `<td align="center" valign="top" width="50%" style="padding:18px 12px;${index === 0 ? "border-right:1px solid #e6d6a8;" : ""}">
+<div style="font-family:${sans};font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#8a7a60">${e(label)}</div>
+<div style="font-family:${serif};font-size:20px;line-height:26px;font-weight:bold;color:#660033;padding-top:6px">${e(value)}</div>
+</td>`,
     )
     .join("");
-  const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:15px;color:#2a1a20;max-width:520px">
-<h1 style="margin:0 0 6px;font-size:22px;font-weight:600;color:#660033">${escapeHtml(event.name)}</h1>
-<div style="height:2px;width:48px;background:#c29b40;margin:0 0 22px"></div>
-${paragraph(greeting)}${paragraph(welcome)}
-<table style="margin:0 0 20px;border-collapse:collapse">${detailRows}</table>
-${paragraph(note)}${paragraph(closing)}<p style="margin:0;font-weight:600;color:#660033">${escapeHtml(event.name)}</p></div>`;
+
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(subject)}</title></head>
+<body style="margin:0;padding:0;background-color:#f4ede4">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#f4ede4">${e(`Your access card is attached. ${table}, ${hostName}.`)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4ede4" style="background-color:#f4ede4">
+<tr><td align="center" style="padding:28px 12px">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px">
+<tr><td align="center" bgcolor="#660033" style="background-color:#660033;border-radius:10px 10px 0 0;padding:36px 28px 30px">
+<div style="font-family:${sans};font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#e3c981">Your access card</div>
+<div style="font-family:${serif};font-size:30px;line-height:38px;color:#ffffff;padding:10px 0 18px">${e(event.name)}</div>
+<div style="height:2px;width:56px;background-color:#c29b40;line-height:2px;font-size:2px">&nbsp;</div>
+</td></tr>
+<tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:0 0 10px 10px;padding:34px 36px 38px;font-family:${sans};font-size:15px;line-height:25px;color:#2a1a20" align="center">
+<p style="margin:0 0 14px;font-family:${serif};font-size:22px;line-height:30px;color:#660033">${e(greeting)}</p>
+<p style="margin:0 0 26px;color:#4a3a40">${e(welcome)}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#fbf6e9" style="background-color:#fbf6e9;border:1px solid #e6d6a8;border-radius:8px;margin:0 0 26px">
+<tr>${detailCells}</tr>
+</table>
+<p style="margin:0 0 28px;font-size:14px;line-height:23px;color:#6b5e63">${e(note)}</p>
+<div style="height:1px;width:56px;background-color:#e6d6a8;line-height:1px;font-size:1px;margin:0 auto 22px">&nbsp;</div>
+<p style="margin:0 0 4px;color:#6b5e63">${e(closing)}</p>
+<p style="margin:0;font-family:${serif};font-size:18px;color:#660033">${e(event.name)}</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`;
 
   return { subject, text, html };
 }
