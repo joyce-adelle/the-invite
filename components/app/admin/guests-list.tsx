@@ -9,7 +9,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { PAGE_SIZE, viewToStatus, type DashboardFilters } from "@/lib/admin-filters";
+import {
+  PAGE_SIZE,
+  viewToStatus,
+  type DashboardFilters,
+} from "@/lib/admin-filters";
 import { getAdminGuests } from "@/lib/data/guests";
 import type { TableOccupancy } from "@/types/hosts";
 
@@ -30,7 +34,8 @@ export async function GuestsList({
     { page: filters.page, pageSize: PAGE_SIZE },
   );
 
-  if (guests.length === 0) return <GuestsEmptyState filters={filters} hostName={hostName} />;
+  if (guests.length === 0)
+    return <GuestsEmptyState filters={filters} hostName={hostName} />;
 
   const approvedView = filters.status === "approved";
 
@@ -41,7 +46,7 @@ export async function GuestsList({
           <TableRow>
             <TableHead className="pl-4">Guest</TableHead>
             <TableHead className="hidden md:table-cell">Email</TableHead>
-            <TableHead className="hidden sm:table-cell">Invited by</TableHead>
+            <TableHead className="hidden sm:table-cell">Guest Type</TableHead>
             {approvedView ? (
               <>
                 <TableHead>Table</TableHead>
@@ -50,7 +55,9 @@ export async function GuestsList({
               </>
             ) : (
               <>
-                <TableHead className="hidden lg:table-cell">Requested</TableHead>
+                <TableHead className="hidden lg:table-cell">
+                  Requested
+                </TableHead>
                 <TableHead className="hidden sm:table-cell">Status</TableHead>
               </>
             )}

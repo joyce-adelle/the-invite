@@ -306,7 +306,7 @@ function cardEmail(guest: Guest, hostName: string) {
     "Your personal access card is attached to this email as a PDF. Please keep it safe and bring it with you, printed or on your phone, as you will need it at the entrance. Each card admits one guest.";
   const closing = "With warm wishes,";
   const details: [string, string][] = [
-    ["Invited by", hostName],
+    ["Guest Type", hostName],
     ["Your table", table],
   ];
 

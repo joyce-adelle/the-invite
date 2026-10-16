@@ -1,16 +1,16 @@
 import "./no-email"; // first: nothing here may send real email
 import "dotenv/config";
 
-import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
-
-import { sendAccessCard } from "@/lib/access-card";
-import { cancelGuest, createGuest, getGuest, rejectGuest, updateGuestTable } from "@/lib/data/guests";
-import { approveInvitation, moveInvitationTable, resendAccessCard } from "@/lib/invitations";
-import { prisma } from "@/lib/prisma";
-import type { Guest } from "@/types/guest";
 import { accepted, fakeEmailClient, rejected } from "./fake-email";
+import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { approveInvitation, moveInvitationTable, resendAccessCard } from "@/lib/invitations";
+import { cancelGuest, createGuest, getGuest, rejectGuest, updateGuestTable } from "@/lib/data/guests";
+
+import type { Guest } from "@/types/guest";
+import assert from "node:assert/strict";
+import { prisma } from "@/lib/prisma";
 import { readCard } from "./pdf-helpers";
+import { sendAccessCard } from "@/lib/access-card";
 
 // The whole delivery story, through the real flows and the real card
 // generator, with only the mail client replaced: the first send, a failed
@@ -68,8 +68,8 @@ describe("access card delivery", { skip: !isLocal && "DATABASE_URL is not a loca
   });
   beforeEach(() => {
     process.env.EMAIL_FROM = "TheInvite <invites@example.com>";
-    mock.method(console, "error", () => {});
-    mock.method(console, "info", () => {});
+    mock.method(console, "error", () => { });
+    mock.method(console, "info", () => { });
   });
   afterEach(async () => {
     mock.restoreAll();
@@ -293,7 +293,7 @@ describe("access card delivery", { skip: !isLocal && "DATABASE_URL is not a loca
       await resendAccessCard(guest.id, via(mailer));
       await prisma.host.update({ where: { id: HOST_ID }, data: { name: HOST_NAME } });
 
-      assert.match(mailer.calls[0].payload.text, /Invited by: Renamed Family/);
+      assert.match(mailer.calls[0].payload.text, /Guest Type: Renamed Family/);
     });
   });
 });

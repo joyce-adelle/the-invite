@@ -535,13 +535,13 @@ describe("card for a stored guest", { skip: !isLocal && "DATABASE_URL is not a l
       for (const body of [payload.text, payload.html]) {
         assert.match(body, /Dear Ada Lovelace,/);
         assert.match(body, /delighted to welcome you to Ìyá Opeke @ 80/);
-        assert.match(body, /Invited by/);
+        assert.match(body, /Guest Type/);
         assert.match(body, /Lovelace Family/);
         assert.match(body, /Table 4/);
         assert.match(body, /keep it safe and bring it with you/);
         assert.match(body, /admits one guest/);
       }
-      assert.match(payload.text, /Invited by: Lovelace Family\nYour table: Table 4/);
+      assert.match(payload.text, /Guest Type: Lovelace Family\nYour table: Table 4/);
 
       assert.equal(payload.attachments?.length, 1);
       const [attachment] = payload.attachments!;

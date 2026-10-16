@@ -18,7 +18,7 @@ export function RequestDuplicate({
   return (
     <div role="status" className="flex flex-col items-center py-4 text-center">
       <h2 className="font-display text-3xl font-medium text-primary">
-        A quick note
+        Error Registering Your Invitation
       </h2>
       <div aria-hidden className="mt-4 h-px w-12 bg-gold" />
       <p className="mt-5 max-w-sm text-pretty text-muted-foreground">
