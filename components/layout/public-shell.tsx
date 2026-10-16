@@ -11,7 +11,7 @@ export function PublicShell({
   return (
     <main
       className={cn(
-        "relative isolate flex flex-1 flex-col justify-center overflow-hidden py-16 sm:py-20",
+        "relative isolate flex flex-1 flex-col justify-center overflow-hidden py-14",
         className,
       )}
       {...props}
