@@ -1,8 +1,10 @@
-import type { Metadata } from "next";
+import "./globals.css";
+
 import { Cormorant_Garamond, Geist } from "next/font/google";
+
+import type { Metadata } from "next";
 import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
-import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,11 +27,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={cn("h-full antialiased", geistSans.variable, cormorant.variable)}
+      className={cn(
+        "h-full antialiased",
+        geistSans.variable,
+        cormorant.variable,
+      )}
     >
       <body className="flex min-h-full flex-col">
         {children}
-        <Toaster position="top-center" />
+        <Toaster position="top-center" richColors />
       </body>
     </html>
   );
