@@ -5,10 +5,12 @@ import { z } from "zod";
 
 import { requireAdmin } from "@/lib/admin-session";
 import { isGuestError } from "@/lib/data/errors";
-import { cancelGuest, rejectGuest } from "@/lib/data/guests";
+import { GuestStatus } from "@/types/guest";
+import { cancelGuest, createGuest, rejectGuest, updateGuestDetails } from "@/lib/data/guests";
 import { resolveSupportRequest } from "@/lib/data/support";
 import { deliveryMessage, resendMessage } from "@/lib/delivery-messages";
 import { approveInvitation, moveInvitationTable, resendAccessCard } from "@/lib/invitations";
+import { parseInvitationRequest, type InvitationRequestFieldErrors } from "@/lib/validation/invitation";
 
 // Every admin mutation goes through here. Server actions are public POST
 // endpoints, so each one checks the session itself and validates its input.
@@ -16,28 +18,22 @@ import { approveInvitation, moveInvitationTable, resendAccessCard } from "@/lib/
 /** `notice` marks a success that didn't do the whole job, so the UI shouldn't celebrate it. */
 export type AdminActionResult =
   | { ok: true; message: string; notice?: boolean }
-  | { ok: false; message: string };
+  | { ok: false; message: string; fieldErrors?: InvitationRequestFieldErrors };
 
 const guestIdSchema = z.uuid();
 const tableNumberSchema = z.number().int().positive();
 
 const NOT_FOUND = "That guest could not be found.";
 const SUPPORT_NOT_FOUND = "That help request could not be found.";
+const UNKNOWN_HOST = "Choose which host this guest is invited by.";
 const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
 
-async function run(
-  id: unknown,
-  operation: (
-    id: string,
-  ) => Promise<string | { message: string; notice: true } | { ok: false; message: string }>,
-): Promise<AdminActionResult> {
-  await requireAdmin();
+type Outcome = string | { message: string; notice: true } | { ok: false; message: string };
 
-  const parsed = guestIdSchema.safeParse(id);
-  if (!parsed.success) return { ok: false, message: NOT_FOUND };
-
+/** Runs a change, refreshes the dashboard and turns the outcome (or an expected failure) into a result. */
+async function settle(operation: () => Promise<Outcome>): Promise<AdminActionResult> {
   try {
-    const outcome = await operation(parsed.data);
+    const outcome = await operation();
     revalidatePath("/admin");
     if (typeof outcome === "string") return { ok: true, message: outcome };
     return "ok" in outcome ? outcome : { ok: true, ...outcome };
@@ -45,11 +41,78 @@ async function run(
     // Refresh either way: a failure often means the list was out of date.
     revalidatePath("/admin");
     if (isGuestError(error)) {
-      return { ok: false, message: error.code === "GUEST_NOT_FOUND" ? NOT_FOUND : error.message };
+      if (error.code === "GUEST_NOT_FOUND") return { ok: false, message: NOT_FOUND };
+      if (error.code === "UNKNOWN_HOST") return { ok: false, message: UNKNOWN_HOST };
+      return { ok: false, message: error.message };
     }
     console.error("Admin action failed", error);
     return { ok: false, message: GENERIC_ERROR };
   }
+}
+
+async function run(
+  id: unknown,
+  operation: (id: string) => Promise<Outcome>,
+): Promise<AdminActionResult> {
+  await requireAdmin();
+
+  const parsed = guestIdSchema.safeParse(id);
+  if (!parsed.success) return { ok: false, message: NOT_FOUND };
+
+  return settle(() => operation(parsed.data));
+}
+
+/**
+ * Adds a guest on an admin's behalf, as a PENDING request. Unlike the public
+ * form, a name that is already taken is allowed: two guests can share a name.
+ * It takes no capacity until the guest is approved.
+ */
+export async function createGuestAction(input: {
+  name: string;
+  email: string;
+  hostId: string;
+}): Promise<AdminActionResult> {
+  await requireAdmin();
+
+  const parsed = parseInvitationRequest({ name: input?.name, email: input?.email });
+  if (!parsed.success) {
+    return { ok: false, message: "Please check the highlighted fields.", fieldErrors: parsed.fieldErrors };
+  }
+  const hostId = typeof input?.hostId === "string" && input.hostId.length <= 64 ? input.hostId : "";
+  if (!hostId) return { ok: false, message: UNKNOWN_HOST };
+
+  return settle(async () => {
+    const guest = await createGuest({ ...parsed.data, invitedBy: hostId });
+    return `${guest.name} was added as a pending request. Approve them from the list when you're ready.`;
+  });
+}
+
+/**
+ * Corrects a guest's name or email, whatever their status. For an approved
+ * guest the card they hold no longer matches, so the result says to send it again.
+ */
+export async function updateGuestAction(
+  id: string,
+  input: { name: string; email: string },
+): Promise<AdminActionResult> {
+  await requireAdmin();
+
+  const parsed = parseInvitationRequest({ name: input?.name, email: input?.email });
+  if (!parsed.success) {
+    return { ok: false, message: "Please check the highlighted fields.", fieldErrors: parsed.fieldErrors };
+  }
+
+  return run(id, async (guestId) => {
+    const { guest, changed } = await updateGuestDetails(guestId, parsed.data);
+    if (!changed.name && !changed.email) return `No changes to save for ${guest.name}.`;
+    if (guest.status === GuestStatus.APPROVED) {
+      return {
+        message: `${guest.name}'s details were updated. The card they were sent has the old details, so use “Send access card” to email them a new one.`,
+        notice: true,
+      };
+    }
+    return `${guest.name}'s details were updated.`;
+  });
 }
 
 export async function approveGuestAction(id: string): Promise<AdminActionResult> {

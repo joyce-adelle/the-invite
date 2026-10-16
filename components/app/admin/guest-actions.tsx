@@ -8,6 +8,7 @@ import {
   Loader2,
   MailPlus,
   MoreHorizontal,
+  Pencil,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +16,7 @@ import { toast } from "sonner";
 import { ChangeTableDialog } from "@/components/app/admin/change-table-dialog";
 import { ConfirmDialog } from "@/components/app/admin/confirm-dialog";
 import { DownloadCardButton } from "@/components/app/admin/download-card-button";
+import { GuestFormDialog } from "@/components/app/admin/guest-form-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -34,7 +36,7 @@ import {
 import { CardStatus, GuestStatus, type AdminGuest } from "@/types/guest";
 import type { TableOccupancy } from "@/types/hosts";
 
-type OpenDialog = "reject" | "cancel" | "table" | null;
+type OpenDialog = "reject" | "cancel" | "table" | "edit" | null;
 
 function isRedirectError(error: unknown): boolean {
   const digest = (error as { digest?: unknown } | null)?.digest;
@@ -90,6 +92,15 @@ export function GuestActions({
     });
   }
 
+  const editDialog = (
+    <GuestFormDialog
+      mode="edit"
+      open={dialog === "edit"}
+      onOpenChange={(open) => setDialog(open ? "edit" : null)}
+      guest={guest}
+    />
+  );
+
   if (guest.status === GuestStatus.APPROVED) {
     return (
       <div className="flex items-center justify-end gap-2">
@@ -111,6 +122,9 @@ export function GuestActions({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setDialog("edit")}>
+              <Pencil aria-hidden /> Edit details
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setDialog("table")}>
               <ArrowRightLeft aria-hidden /> Change table
             </DropdownMenuItem>
@@ -133,6 +147,8 @@ export function GuestActions({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {editDialog}
 
         <ChangeTableDialog
           open={dialog === "table"}
@@ -203,6 +219,18 @@ export function GuestActions({
           />
         </>
       )}
+
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setDialog("edit")}
+        disabled={busy}
+        aria-label={`Edit details for ${guest.name}`}
+      >
+        <Pencil aria-hidden />
+        <span className="sm:sr-only">Edit</span>
+      </Button>
+      {editDialog}
     </div>
   );
 }

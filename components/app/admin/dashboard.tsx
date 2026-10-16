@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import { AddGuestButton } from "@/components/app/admin/add-guest-button";
 import { GuestsList } from "@/components/app/admin/guests-list";
 import { HostCapacity } from "@/components/app/admin/host-capacity";
 import { HostFilter } from "@/components/app/admin/host-filter";
@@ -33,6 +34,12 @@ export async function Dashboard({
       <PageHeader
         title="Dashboard"
         description="Review invitation requests and manage approved guests."
+        actions={
+          <AddGuestButton
+            hosts={counts.hosts.map((h) => ({ id: h.hostId, name: h.name }))}
+            defaultHostId={host?.hostId}
+          />
+        }
       />
 
       <section aria-labelledby="overview-heading" className="space-y-3">

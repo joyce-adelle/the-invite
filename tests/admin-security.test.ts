@@ -24,7 +24,9 @@ describe("who can use the admin actions", () => {
     assert.ok(names.includes("resendAccessCardAction"));
     assert.ok(names.includes("approveGuestAction"));
     assert.ok(names.includes("changeGuestTableAction"));
-    assert.ok(names.length >= 6, names.join(", "));
+    assert.ok(names.includes("createGuestAction"));
+    assert.ok(names.includes("updateGuestAction"));
+    assert.ok(names.length >= 8, names.join(", "));
   });
 
   it("makes every admin action check for a signed-in admin before doing anything", () => {
@@ -43,7 +45,7 @@ describe("who can use the admin actions", () => {
     const run = bodyOf(actions, "run");
     const check = run.indexOf("await requireAdmin()");
     assert.ok(check >= 0);
-    for (const later of ["safeParse(", "operation(", "revalidatePath("]) {
+    for (const later of ["safeParse(", "settle(", "operation("]) {
       assert.ok(run.indexOf(later) > check, `${later} comes after the session check`);
     }
   });

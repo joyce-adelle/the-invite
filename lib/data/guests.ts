@@ -158,19 +158,43 @@ export async function createGuest(input: {
   );
 }
 
-/** Renames a guest, keeping `normalizedName` in step (suffixed if another guest has it). */
-export async function updateGuestName(id: string, name: string): Promise<Guest> {
-  const base = requireNormalizedName(name);
+/**
+ * Corrects a guest's name and email, in any status. The name may match another
+ * guest's (admins can create duplicates), so `normalizedName` is suffixed when
+ * needed, as in `createGuest`. `changed` says what actually differed: nothing
+ * is written when it is neither.
+ *
+ * An approved guest holds a card with the old name, sent to the old address,
+ * so a change puts their card back to NOT_SENT until a new one is delivered
+ * (an admin sends it; see lib/invitations.ts). Their seat doesn't change.
+ */
+export async function updateGuestDetails(
+  id: string,
+  input: { name: string; email: string },
+): Promise<{ guest: Guest; changed: { name: boolean; email: boolean } }> {
+  const base = requireNormalizedName(input.name);
+  const email = normalizeEmail(input.email);
 
   return withUniqueNormalizedName(() =>
     prisma.$transaction(async (tx) => {
-      if (!(await tx.guest.findUnique({ where: { id }, select: { id: true } }))) {
-        throw notFound(id);
-      }
-      return tx.guest.update({
+      const current = await tx.guest.findUnique({ where: { id } });
+      if (!current) throw notFound(id);
+
+      const changed = { name: current.name !== input.name, email: current.email !== email };
+      if (!changed.name && !changed.email) return { guest: current, changed };
+
+      const guest = await tx.guest.update({
         where: { id },
-        data: { name, normalizedName: await availableNormalizedName(tx, base, id) },
+        data: {
+          ...(changed.name && {
+            name: input.name,
+            normalizedName: await availableNormalizedName(tx, base, id),
+          }),
+          ...(changed.email && { email }),
+          ...(current.status === GuestStatus.APPROVED && { cardStatus: CardStatus.NOT_SENT }),
+        },
       });
+      return { guest, changed };
     }),
   );
 }
