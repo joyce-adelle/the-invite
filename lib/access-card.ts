@@ -258,17 +258,19 @@ export async function createAccessCardPdf(card: AccessCardDetails): Promise<Uint
   return doc.save();
 }
 
-/** The card for a guest, naming the host who invited them. Throws if the host can't be found. */
-export async function createGuestAccessCard(guest: Guest): Promise<Uint8Array> {
+/** The name of the host who invited the guest. Throws if the host can't be found. */
+async function hostNameOf(guest: Guest): Promise<string> {
   const host = await getPublicHost(guest.invitedBy);
   if (!host) throw new Error(`Guest ${guest.id}'s host "${guest.invitedBy}" no longer exists.`);
-  return createAccessCardPdf({ ...guest, hostName: host.name });
+  return host.name;
+}
+
+/** The card for a guest, naming the host who invited them. Throws if the host can't be found. */
+export async function createGuestAccessCard(guest: Guest): Promise<Uint8Array> {
+  return createAccessCardPdf({ ...guest, hostName: await hostNameOf(guest) });
 }
 
 // --- The email ---
-
-/** Why the card is being sent, which changes what the email says. */
-export type CardEmailReason = "approved" | "table-changed" | "resent";
 
 function escapeHtml(text: string): string {
   return text
@@ -291,46 +293,67 @@ function attachmentName(name: string): string {
   return `access-card-${slug || "guest"}.pdf`;
 }
 
-function cardEmail(guest: Guest, reason: CardEmailReason) {
-  const intro = {
-    approved: `Your invitation to ${event.name} has been approved. Your access card is attached to this email as a PDF.`,
-    "table-changed": `Your table for ${event.name} has changed, and you are now at table ${guest.tableNumber}. Your updated access card is attached. Please use it instead of any earlier one.`,
-    resent: `Here is your access card for ${event.name} again, attached as a PDF.`,
-  }[reason];
-  const advice =
-    "Please keep it, and show it when you arrive, either printed or on your phone. Each card admits one guest only.";
-  const closing = "We look forward to seeing you.";
+/**
+ * The one email every guest gets
+ */
+function cardEmail(guest: Guest, hostName: string) {
+  const subject = `Your access card for ${event.name}`;
+  const table = `Table ${guest.tableNumber}`;
 
-  const subject =
-    reason === "table-changed"
-      ? `Your updated access card for ${event.name}`
-      : `Your access card for ${event.name}`;
+  const greeting = `Dear ${guest.name},`;
+  const welcome = `We are delighted to welcome you to ${event.name}, and so glad you will be celebrating with us.`;
+  const note =
+    "Your personal access card is attached to this email as a PDF. Please keep it safe and bring it with you, printed or on your phone, as you will need it at the entrance. Each card admits one guest.";
+  const closing = "With warm wishes,";
+  const details: [string, string][] = [
+    ["Invited by", hostName],
+    ["Your table", table],
+  ];
 
-  const text = [`Dear ${guest.name},`, intro, advice, closing].join("\n\n");
+  const text = [
+    greeting,
+    welcome,
+    details.map(([label, value]) => `${label}: ${value}`).join("\n"),
+    note,
+    `${closing}\n${event.name}`,
+  ].join("\n\n");
 
-  const paragraph = (content: string) => `<p style="margin:0 0 16px;line-height:1.55">${escapeHtml(content)}</p>`;
+  const paragraph = (content: string) =>
+    `<p style="margin:0 0 18px;line-height:1.6">${escapeHtml(content)}</p>`;
+  const detailRows = details
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:4px 18px 4px 0;color:#6b5e63">${escapeHtml(label)}</td><td style="padding:4px 0;font-weight:600;color:#660033">${escapeHtml(value)}</td></tr>`,
+    )
+    .join("");
   const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:15px;color:#2a1a20;max-width:520px">
-<h1 style="margin:0 0 20px;font-size:20px;font-weight:600;color:#660033">${escapeHtml(event.name)}</h1>
-${paragraph(`Dear ${guest.name},`)}${paragraph(intro)}${paragraph(advice)}${paragraph(closing)}</div>`;
+<h1 style="margin:0 0 6px;font-size:22px;font-weight:600;color:#660033">${escapeHtml(event.name)}</h1>
+<div style="height:2px;width:48px;background:#c29b40;margin:0 0 22px"></div>
+${paragraph(greeting)}${paragraph(welcome)}
+<table style="margin:0 0 20px;border-collapse:collapse">${detailRows}</table>
+${paragraph(note)}${paragraph(closing)}<p style="margin:0;font-weight:600;color:#660033">${escapeHtml(event.name)}</p></div>`;
 
   return { subject, text, html };
 }
 
 /**
- * Emails the guest their access card as a PDF attachment, whatever its current
- * card status. Resolves once Resend has accepted the email and throws if it
- * didn't, so callers record SENT or FAILED from the outcome. A card that can't
- * be generated, or a missing or invalid email configuration, counts as a
- * failed send.
+ * Emails the guest their access card as a PDF attachment: the card is
+ * generated now, from the guest as they are now, so a changed table shows on
+ * it. Resolves once Resend has accepted the email and throws if it didn't, so
+ * callers record SENT or FAILED from the outcome. A card that can't be
+ * generated, or a missing or invalid email configuration, counts as a failed
+ * send. Only approved guests have a card, so anyone else throws before
+ * anything is sent.
  *
  * `client` is for tests: they pass a stand-in so nothing is ever really sent.
  */
 export async function sendAccessCard(
   guest: Guest,
-  { reason = "approved", client }: { reason?: CardEmailReason; client?: EmailClient } = {},
+  { client }: { client?: EmailClient } = {},
 ): Promise<{ id: string }> {
-  const pdf = await createGuestAccessCard(guest);
-  const { subject, text, html } = cardEmail(guest, reason);
+  const hostName = await hostNameOf(guest);
+  const pdf = await createAccessCardPdf({ ...guest, hostName });
+  const { subject, text, html } = cardEmail(guest, hostName);
 
   return sendEmail(
     {
@@ -340,7 +363,7 @@ export async function sendAccessCard(
       html,
       attachments: [{ filename: attachmentName(guest.name), content: Buffer.from(pdf) }],
     },
-    `access-card-${reason}/${guest.id}`,
+    `access-card/${guest.id}`,
     { client },
   );
 }

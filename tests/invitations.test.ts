@@ -72,13 +72,15 @@ async function rejectsWith(code: GuestErrorCode, promise: Promise<unknown>, mess
   });
 }
 
-const removeGuests = () => prisma.guest.deleteMany({ where: { invitedBy: { startsWith: "test-" } } });
+// Only this file's own hosts: other test files have fixtures of their own ("test-card", "test-delivery").
+const OWN_HOSTS = FIXTURE_HOSTS.map((host) => host.id);
+const removeGuests = () => prisma.guest.deleteMany({ where: { invitedBy: { in: OWN_HOSTS } } });
 
 describe("invitation approval rules", { skip: !isLocal && "DATABASE_URL is not a local database" }, () => {
   before(async () => {
     await removeGuests();
-    await prisma.table.deleteMany({ where: { hostId: { startsWith: "test-" } } });
-    await prisma.host.deleteMany({ where: { id: { startsWith: "test-" } } });
+    await prisma.table.deleteMany({ where: { hostId: { in: OWN_HOSTS } } });
+    await prisma.host.deleteMany({ where: { id: { in: OWN_HOSTS } } });
     for (const host of FIXTURE_HOSTS) {
       await prisma.host.create({
         data: {
@@ -100,8 +102,8 @@ describe("invitation approval rules", { skip: !isLocal && "DATABASE_URL is not a
   });
   after(async () => {
     await removeGuests();
-    await prisma.table.deleteMany({ where: { hostId: { startsWith: "test-" } } });
-    await prisma.host.deleteMany({ where: { id: { startsWith: "test-" } } });
+    await prisma.table.deleteMany({ where: { hostId: { in: OWN_HOSTS } } });
+    await prisma.host.deleteMany({ where: { id: { in: OWN_HOSTS } } });
     await prisma.$disconnect();
   });
 
@@ -132,29 +134,32 @@ describe("invitation approval rules", { skip: !isLocal && "DATABASE_URL is not a
       // The default sender with no RESEND_API_KEY (tests blank it): nothing is sent.
       const guest = await pending();
       const result = await approveInvitation(guest.id);
-      assert.deepEqual(result.delivery, { status: "FAILED" });
+      assert.equal(result.delivery.status, "FAILED");
+      assert.match(result.delivery.status === "FAILED" ? result.delivery.reason : "", /RESEND_API_KEY is not set/);
       const stored = await fresh(guest.id);
       assert.equal(stored.status, "APPROVED");
       assert.equal(stored.cardStatus, "FAILED");
     });
 
-    it("tells the email why it is being sent: approval, table change or resend", async () => {
-      const reasons: (string | undefined)[] = [];
-      const send = async (_guest: Guest, options?: { reason?: string }) => {
-        reasons.push(options?.reason);
+    it("sends the same thing every time: on approval, on a table change and on a resend", async () => {
+      const calls: unknown[][] = [];
+      const send = async (...args: [Guest, ...unknown[]]) => {
+        calls.push(args.slice(1));
         return { id: "test-email-id" };
       };
       const guest = (await approveInvitation((await pending()).id, send)).guest;
       await moveInvitationTable(guest.id, 9002, send);
       await resendAccessCard(guest.id, send);
-      assert.deepEqual(reasons, ["approved", "table-changed", "resent"]);
+      assert.equal(calls.length, 3);
+      assert.ok(calls.every((extra) => extra.length === 0), "no per-case options: one template for all");
     });
 
     it("keeps the approval and marks the card FAILED when the email fails", async () => {
       const guest = await pending();
       const result = await approveInvitation(guest.id, failing);
 
-      assert.deepEqual(result.delivery, { status: "FAILED" });
+      assert.equal(result.delivery.status, "FAILED");
+      assert.match(result.delivery.status === "FAILED" ? result.delivery.reason : "", /mail server unreachable/, "the admin is told why");
       const stored = await fresh(guest.id);
       assert.equal(stored.status, "APPROVED");
       assert.equal(stored.tableNumber, 9001);
@@ -485,7 +490,7 @@ describe("invitation approval rules", { skip: !isLocal && "DATABASE_URL is not a
     it("keeps the move but marks the card FAILED if the new email fails", async () => {
       const guest = await approved();
       const result = await moveInvitationTable(guest.id, 9002, failing);
-      assert.deepEqual(result.delivery, { status: "FAILED" });
+      assert.equal(result.delivery?.status, "FAILED");
       const stored = await fresh(guest.id);
       assert.equal(stored.tableNumber, 9002);
       assert.equal(stored.cardStatus, "FAILED");
@@ -551,10 +556,32 @@ describe("invitation approval rules", { skip: !isLocal && "DATABASE_URL is not a
   });
 
   describe("resending a card", () => {
-    it("works for approved guests only", async () => {
-      const guest = await pending();
-      await rejectsWith("INVALID_STATUS", resendAccessCard(guest.id, ok));
-      await rejectsWith("GUEST_NOT_FOUND", resendAccessCard("00000000-0000-4000-8000-000000000000", ok));
+    it("works for approved guests only: nothing is sent for pending, rejected or cancelled guests", async () => {
+      const { sent, send } = counting();
+      const waiting = await pending();
+      const rejected = await pending();
+      await rejectGuest(rejected.id);
+      const cancelled = await approved();
+      await cancelGuest(cancelled.id);
+
+      for (const guest of [waiting, rejected, cancelled]) {
+        await rejectsWith("INVALID_STATUS", resendAccessCard(guest.id, send));
+      }
+      await rejectsWith("GUEST_NOT_FOUND", resendAccessCard("00000000-0000-4000-8000-000000000000", send));
+      assert.equal(sent.length, 0);
+    });
+
+    it("keeps a failed resend's guest approved, marks the card FAILED and keeps the last successful send time", async () => {
+      const guest = await approved();
+      const sentAt = (await fresh(guest.id)).cardSentAt!;
+
+      const result = await resendAccessCard(guest.id, failing);
+
+      assert.equal(result.delivery.status, "FAILED");
+      const stored = await fresh(guest.id);
+      assert.equal(stored.status, "APPROVED");
+      assert.equal(stored.cardStatus, "FAILED");
+      assert.equal(stored.cardSentAt?.getTime(), sentAt.getTime(), "not re-stamped as sent");
     });
   });
 });

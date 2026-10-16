@@ -8,12 +8,10 @@ import { after, before, describe, it } from "node:test";
 
 import fontkit from "@pdf-lib/fontkit";
 import {
-  PDFArray,
   PDFDict,
   PDFDocument,
   PDFName,
   PDFRawStream,
-  decodePDFRawStream,
   type PDFPage,
 } from "pdf-lib";
 
@@ -27,6 +25,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import type { Guest } from "@/types/guest";
 import { accepted, fakeEmailClient, rejected } from "./fake-email";
+import { contentStreams, readCard, type Drawn } from "./pdf-helpers";
 
 // Generates real cards from the real template and reads them back: which pages
 // there are, what is on them, and that the source files are left alone.
@@ -49,15 +48,8 @@ const BELL = String.fromCodePoint(0x0007);
 const cp = (...codes: number[]) => String.fromCodePoint(...codes);
 
 const sha = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
-const asText = (bytes: Uint8Array) => Buffer.from(bytes).toString("latin1");
 
 // --- Reading a PDF back ---
-
-function contentStreams(doc: PDFDocument, page: PDFPage): string[] {
-  const contents = page.node.Contents()!;
-  const streams = contents instanceof PDFArray ? contents.asArray().map((ref) => doc.context.lookup(ref)) : [contents];
-  return streams.map((stream) => asText(decodePDFRawStream(stream as PDFRawStream).decode()));
-}
 
 /** Everything a page draws, including the content of the artwork it references, as one fingerprint. */
 function fingerprint(doc: PDFDocument, page: PDFPage, onlyOriginal = false): string {
@@ -77,33 +69,6 @@ function fingerprint(doc: PDFDocument, page: PDFPage, onlyOriginal = false): str
   };
   visit(page.node.Resources());
   return parts.join("\n");
-}
-
-type Drawn = { text: string; size: number; x: number; y: number };
-
-/** The text a card draws on page 2, as (text, size, position), via the font's own glyph-to-Unicode table. */
-function drawnText(doc: PDFDocument, page: PDFPage): Drawn[] {
-  const fonts = page.node.Resources()!.lookupMaybe(PDFName.of("Font"), PDFDict)!;
-  const fontDict = fonts.lookup(fonts.keys()[0], PDFDict);
-  const toUnicode = asText(decodePDFRawStream(fontDict.lookup(PDFName.of("ToUnicode")) as PDFRawStream).decode());
-  const byGlyph = new Map<string, string>();
-  for (const [, glyph, unicode] of toUnicode.matchAll(/<([0-9A-F]{4})> <([0-9A-F]+)>/g)) {
-    byGlyph.set(glyph, Buffer.from(unicode, "hex").swap16().toString("utf16le")); // UTF-16 big-endian
-  }
-
-  const added = contentStreams(doc, page).slice(3).join("\n");
-  const runs = [...added.matchAll(/\/\S+ ([\d.]+) Tf\s+\S+ TL\s+1 0 0 1 (-?[\d.]+) (-?[\d.]+) Tm\s+<([0-9A-F]+)> Tj/g)];
-  return runs.map(([, size, x, y, hex]) => ({
-    size: Number(size),
-    x: Number(x),
-    y: Number(y),
-    text: (hex.match(/.{4}/g) ?? []).map((glyph) => byGlyph.get(glyph) ?? "�").join(""),
-  }));
-}
-
-async function readCard(pdf: Uint8Array) {
-  const doc = await PDFDocument.load(pdf);
-  return { doc, page1: doc.getPage(0), page2: doc.getPage(1), drawn: drawnText(doc, doc.getPage(1)) };
 }
 
 // Loaded in `before`: where things should land, in PDF coordinates.
@@ -557,17 +522,26 @@ describe("card for a stored guest", { skip: !isLocal && "DATABASE_URL is not a l
     // These use a stand-in mail client, so nothing is ever really sent.
     process.env.EMAIL_FROM ??= "TheInvite <invites@example.com>";
 
-    it("emails the guest their card as a PDF attachment", async () => {
+    it("emails the guest a warm note with their details and their card as a PDF attachment", async () => {
       const { client, calls } = fakeEmailClient(accepted("mail-1"));
-      assert.deepEqual(await sendAccessCard(guest(), { client }), { id: "mail-1" });
+      assert.deepEqual(await sendAccessCard(guest({ tableNumber: 4 }), { client }), { id: "mail-1" });
 
       assert.equal(calls.length, 1);
       const { payload } = calls[0];
       assert.equal(payload.to, "ada@example.com");
       assert.equal(payload.subject, "Your access card for Ìyá Opeke @ 80");
-      assert.match(payload.text, /^Dear Ada Lovelace,/);
-      assert.match(payload.text, /has been approved/);
-      assert.match(payload.text, /admits one guest only/);
+
+      // Everything the email must say: who, what, invited by, table, and keep the card.
+      for (const body of [payload.text, payload.html]) {
+        assert.match(body, /Dear Ada Lovelace,/);
+        assert.match(body, /delighted to welcome you to Ìyá Opeke @ 80/);
+        assert.match(body, /Invited by/);
+        assert.match(body, /Lovelace Family/);
+        assert.match(body, /Table 4/);
+        assert.match(body, /keep it safe and bring it with you/);
+        assert.match(body, /admits one guest/);
+      }
+      assert.match(payload.text, /Invited by: Lovelace Family\nYour table: Table 4/);
 
       assert.equal(payload.attachments?.length, 1);
       const [attachment] = payload.attachments!;
@@ -586,32 +560,40 @@ describe("card for a stored guest", { skip: !isLocal && "DATABASE_URL is not a l
       assert.ok(drawn.some((d) => d.text === "TABLE 12"));
     });
 
-    it("says what is new when the table has changed", async () => {
+    it("uses exactly the same wording whether it is the first send, a resend or after a table change", async () => {
       const { client, calls } = fakeEmailClient();
-      await sendAccessCard(guest({ tableNumber: 5 }), { client, reason: "table-changed" });
-      const { subject, text } = calls[0].payload;
-      assert.equal(subject, "Your updated access card for Ìyá Opeke @ 80");
-      assert.match(text, /you are now at table 5/);
-      assert.match(text, /instead of any earlier one/);
-    });
+      const ada = guest({ tableNumber: 5 });
+      await sendAccessCard(ada, { client }); // approval
+      await sendAccessCard(ada, { client }); // admin resend
+      await sendAccessCard({ ...ada, cardStatus: "FAILED", cardSentAt: new Date() }, { client }); // after a failed send
 
-    it("says it is a resend when an admin sends it again", async () => {
-      const { client, calls } = fakeEmailClient();
-      await sendAccessCard(guest(), { client, reason: "resent" });
-      assert.equal(calls[0].payload.subject, "Your access card for Ìyá Opeke @ 80");
-      assert.match(calls[0].payload.text, /again, attached as a PDF/);
-    });
-
-    it("gives each kind of send its own idempotency key prefix", async () => {
-      const { client, calls } = fakeEmailClient();
-      const id = "00000000-0000-4000-8000-000000000002";
-      for (const reason of ["approved", "table-changed", "resent"] as const) {
-        await sendAccessCard(guest(), { client, reason });
+      const [first, ...others] = calls.map((c) => c.payload);
+      for (const other of others) {
+        assert.equal(other.subject, first.subject);
+        assert.equal(other.text, first.text);
+        assert.equal(other.html, first.html);
       }
-      assert.deepEqual(
-        calls.map((c) => c.options.idempotencyKey.replace(/-[0-9a-f-]{36}$/, "")),
-        [`access-card-approved/${id}`, `access-card-table-changed/${id}`, `access-card-resent/${id}`],
-      );
+    });
+
+    it("changes only the details when the table changes: the same wording, the new table", async () => {
+      const { client, calls } = fakeEmailClient();
+      await sendAccessCard(guest({ tableNumber: 2 }), { client });
+      await sendAccessCard(guest({ tableNumber: 4 }), { client });
+
+      const [before, after] = calls.map((c) => c.payload);
+      assert.match(before.text, /Table 2/);
+      assert.match(after.text, /Table 4/);
+      assert.equal(after.text.replace("Table 4", "Table 2"), before.text);
+      assert.equal(after.subject, before.subject);
+    });
+
+    it("uses the same idempotency key prefix, with a unique part so a resend is never swallowed", async () => {
+      const { client, calls } = fakeEmailClient();
+      await sendAccessCard(guest(), { client });
+      await sendAccessCard(guest(), { client });
+      const keys = calls.map((c) => c.options.idempotencyKey);
+      for (const key of keys) assert.match(key, /^access-card\/00000000-0000-4000-8000-000000000002-[0-9a-f-]{36}$/);
+      assert.notEqual(keys[0], keys[1]);
     });
 
     it("can't be made to inject HTML or odd file names through a guest's name", async () => {
@@ -641,9 +623,11 @@ describe("card for a stored guest", { skip: !isLocal && "DATABASE_URL is not a l
       await assert.rejects(sendAccessCard(guest()), /RESEND_API_KEY is not set/);
     });
 
-    it("sends nothing when there is no card to send", async () => {
+    it("sends nothing for pending, rejected or cancelled guests, or one without a table", async () => {
       const { client, calls } = fakeEmailClient();
-      await assert.rejects(sendAccessCard(guest({ status: "CANCELLED" }), { client }), /isn't approved/);
+      for (const status of ["PENDING", "REJECTED", "CANCELLED"] as const) {
+        await assert.rejects(sendAccessCard(guest({ status }), { client }), /isn't approved/, status);
+      }
       await assert.rejects(sendAccessCard(guest({ tableNumber: null }), { client }), /isn't approved with a table/);
       assert.equal(calls.length, 0);
     });

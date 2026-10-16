@@ -41,7 +41,11 @@ Access cards are emailed with [Resend](https://resend.com), as a PDF attachment.
 
 Without these settings nothing is sent: a card email fails, the card is marked **failed** and an admin can resend it once email is configured.
 
-A card email goes out when a guest is approved, when their table changes, and when an admin resends it. Transient problems (rate limiting, Resend outages, network errors) are retried up to three times with the same idempotency key, so a retry can't deliver the email twice. Other errors, such as an unverified domain or an invalid address, fail straight away. The code is in [lib/email.ts](lib/email.ts) and `sendAccessCard` in [lib/access-card.ts](lib/access-card.ts).
+A card email goes out when a guest is approved, when their table changes, and when an admin resends it. It is **one email with the same wording every time**: a warm note to the guest by name, the event, who invited them, their table, a reminder to keep the attached access card for the event, and the two-page PDF card. The card is generated at the moment of sending from the guest's current details, so after a table change both the automatic email and a resend carry the new table. Nothing is ever sent for pending, rejected or cancelled guests.
+
+If the email can't be sent, the guest stays approved and their card is marked **failed** (the last successful send time is kept, never overwritten). The admin sees the reason in a message, and **Resend access card** tries again. Only a signed-in admin can resend.
+
+Transient problems (rate limiting, Resend outages, network errors) are retried up to three times with the same idempotency key, so a retry can't deliver the email twice. Other errors, such as an unverified domain or an invalid address, fail straight away. The code is in [lib/email.ts](lib/email.ts) and `sendAccessCard` in [lib/access-card.ts](lib/access-card.ts).
 
 ## Where things live
 
@@ -90,7 +94,7 @@ Cards are generated on demand from **one** template, [template/access-card-templ
 
 ## Tests
 
-`npm test` runs Node's built-in test runner. The database tests write to `DATABASE_URL`, so they skip themselves unless it points at a local database, and they delete what they create. Tests never send real email: they pass in a stand-in mail client, and [tests/no-email.ts](tests/no-email.ts) blanks the API key so a test that forgets would fail rather than send.
+`npm test` runs Node's built-in test runner. The database tests write to `DATABASE_URL`, so they skip themselves unless it points at a local database, and they delete what they create. Tests never send real email: they pass in a stand-in mail client, and [tests/no-email.ts](tests/no-email.ts) blanks the API key so a test that forgets would fail rather than send. Test files run one after another, since they share the local database. [tests/card-delivery.test.ts](tests/card-delivery.test.ts) runs the whole story (first send, failed send, resend, resend after a table change) through the real flows and the real card generator, reading the attached PDFs back.
 
 ## Business rules
 

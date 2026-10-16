@@ -69,7 +69,9 @@ export function GuestActions({
           toast.error(result.message, { duration: 8000 });
           return;
         }
-        if (result.notice) toast.info(result.message);
+        // A notice means the main job is done but something needs attention
+        // (such as an email that didn't go out), so it stays up longer.
+        if (result.notice) toast.warning(result.message, { duration: 12000 });
         else toast.success(result.message);
         onSuccess?.();
       } catch (error) {

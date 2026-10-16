@@ -7,12 +7,8 @@ import { requireAdmin } from "@/lib/admin-session";
 import { isGuestError } from "@/lib/data/errors";
 import { cancelGuest, rejectGuest } from "@/lib/data/guests";
 import { resolveSupportRequest } from "@/lib/data/support";
-import {
-  approveInvitation,
-  moveInvitationTable,
-  resendAccessCard,
-  type CardDelivery,
-} from "@/lib/invitations";
+import { deliveryMessage, resendMessage } from "@/lib/delivery-messages";
+import { approveInvitation, moveInvitationTable, resendAccessCard } from "@/lib/invitations";
 
 // Every admin mutation goes through here. Server actions are public POST
 // endpoints, so each one checks the session itself and validates its input.
@@ -31,7 +27,9 @@ const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
 
 async function run(
   id: unknown,
-  operation: (id: string) => Promise<string | { message: string; notice: true }>,
+  operation: (
+    id: string,
+  ) => Promise<string | { message: string; notice: true } | { ok: false; message: string }>,
 ): Promise<AdminActionResult> {
   await requireAdmin();
 
@@ -41,9 +39,8 @@ async function run(
   try {
     const outcome = await operation(parsed.data);
     revalidatePath("/admin");
-    return typeof outcome === "string"
-      ? { ok: true, message: outcome }
-      : { ok: true, ...outcome };
+    if (typeof outcome === "string") return { ok: true, message: outcome };
+    return "ok" in outcome ? outcome : { ok: true, ...outcome };
   } catch (error) {
     // Refresh either way: a failure often means the list was out of date.
     revalidatePath("/admin");
@@ -55,25 +52,10 @@ async function run(
   }
 }
 
-/** Words a card delivery outcome for the toast; a failed send is a notice, not a success. */
-function withDelivery(
-  done: string,
-  delivery: CardDelivery,
-  email: string,
-): string | { message: string; notice: true } {
-  if (delivery.status === "FAILED") {
-    return {
-      message: `${done}, but the access card couldn't be sent. Use “Resend access card” to try again.`,
-      notice: true,
-    };
-  }
-  return `${done}. Access card emailed to ${email}.`;
-}
-
 export async function approveGuestAction(id: string): Promise<AdminActionResult> {
   return run(id, async (guestId) => {
     const { guest, delivery } = await approveInvitation(guestId);
-    return withDelivery(
+    return deliveryMessage(
       `${guest.name} approved and seated at table ${guest.tableNumber}`,
       delivery,
       guest.email,
@@ -107,7 +89,7 @@ export async function changeGuestTableAction(
   return run(id, async (guestId) => {
     const { guest, delivery } = await moveInvitationTable(guestId, table.data);
     if (!delivery) return `${guest.name} is already at table ${guest.tableNumber}.`;
-    return withDelivery(`${guest.name} moved to table ${guest.tableNumber}`, delivery, guest.email);
+    return deliveryMessage(`${guest.name} moved to table ${guest.tableNumber}`, delivery, guest.email);
   });
 }
 
@@ -115,13 +97,9 @@ export async function changeGuestTableAction(
 export async function resendAccessCardAction(id: string): Promise<AdminActionResult> {
   return run(id, async (guestId) => {
     const { guest, delivery } = await resendAccessCard(guestId);
-    if (delivery.status === "FAILED") {
-      return {
-        message: `The access card for ${guest.name} couldn't be sent. Please try again.`,
-        notice: true,
-      };
-    }
-    return `Access card emailed to ${guest.email}.`;
+    const result = resendMessage(guest, delivery);
+    // A failed email changes nothing else, so it is a plain failure.
+    return result.ok ? result.message : result;
   });
 }
 

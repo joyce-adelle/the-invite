@@ -14,7 +14,8 @@ export type InvitationRequestState =
         fieldErrors?: InvitationRequestFieldErrors;
     };
 
-export type CardDelivery = { status: "SENT" } | { status: "FAILED" };
+/** `reason` is why a send failed, for the admin to read; it never contains a secret. */
+export type CardDelivery = { status: "SENT" } | { status: "FAILED"; reason: string };
 
 export type InvitationResult = {
     /** The guest as they are now, including the card status after delivery. */
