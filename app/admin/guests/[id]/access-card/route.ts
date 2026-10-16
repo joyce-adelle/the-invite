@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { createAccessCardPdf } from "@/lib/access-card";
+import { createGuestAccessCard } from "@/lib/access-card";
 import { getAdminSession } from "@/lib/admin-session";
 import { getGuest } from "@/lib/data/guests";
 import { GuestStatus } from "@/types/guest";
@@ -25,8 +25,13 @@ export async function GET(
     return problem(404, "That guest doesn't have an access card.");
   }
 
-  const pdf = await createAccessCardPdf(guest);
-  if (!pdf) return problem(501, "Access card downloads aren't set up yet.");
+  let pdf: Uint8Array;
+  try {
+    pdf = await createGuestAccessCard(guest);
+  } catch (error) {
+    console.error(`Generating the access card for guest ${guest.id} failed`, error);
+    return problem(500, "We couldn't generate the access card. Please try again.");
+  }
 
   return new Response(Buffer.from(pdf), {
     headers: {

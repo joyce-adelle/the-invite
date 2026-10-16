@@ -32,10 +32,6 @@ export function DownloadCardButton({ guest, disabled }: { guest: AdminGuest; dis
         router.push("/admin/login");
         return;
       }
-      if (response.status === 501) {
-        toast.info(await readMessage(response, "Access card downloads aren't set up yet."));
-        return;
-      }
       if (!response.ok) {
         toast.error(await readMessage(response, "We couldn't download the access card."), {
           duration: 8000,

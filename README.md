@@ -59,13 +59,26 @@ Verify your sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`
 | [app/globals.css](app/globals.css) | Theme tokens (brand palette, radius, shadows, fonts) used by every component |
 | [components/ui/](components/ui/) | shadcn/ui components (Radix base); add more with `npx shadcn@latest add <name>` |
 | [components/layout/](components/layout/) | `Container`, `PublicShell`, `AdminShell`, `PageHeader` |
-| [template/New.pdf](template/New.pdf) | The single access-card template (page 1 unchanged, page 2 gets the overlay) |
+| [template/access-card-template.pdf](template/access-card-template.pdf) | The single access-card template (page 1 unchanged, page 2 gets the overlay) |
+| [template/fonts/](template/fonts/) | The card font (Noto Sans Bold, Latin subset) and its licence; see its README |
+| [lib/access-card.ts](lib/access-card.ts) | Server-only card generation (`createAccessCardPdf`) and the card email (`sendAccessCard`) |
 
 ## Help requests
 
 Guests who can't register, or haven't received their card, can send a message from the invitation pages (below the form, and on the "already registered" and "no places left" screens). It needs no registration and is never linked to a guest record, so nothing about the form's response reveals whether a name or email is registered.
 
 Requests are saved in PostgreSQL (`invitation_support_requests`). There is no email: admins see them in the app, via the bell in the admin header (open count plus the latest few) and the **Help requests** page, where they can be filtered open/resolved and marked resolved. The header count refreshes when the page does or when a request is resolved, not live.
+
+## Access cards
+
+Cards are generated on demand from **one** template, [template/access-card-template.pdf](template/access-card-template.pdf), for every host and table. Each card is built in memory with `pdf-lib`: page 1 is kept exactly as it is, and the host's name, the guest's name and `TABLE n` are drawn onto page 2. The source files are never modified, and nothing generated is stored. The same function ([lib/access-card.ts](lib/access-card.ts)) serves the admin **download** button and the email sent on approval, on a table change and on resend, so they always match.
+
+- **Layout and wording** live in `accessCard` in [config/event.ts](config/event.ts).
+- **Two names:** the **guest's own** name comes first, at the top, with a "Guest Name" label. The template has no place for it, so the generator adds it, and every other field sits one slot lower. The "Guest Type" slot shows the **host's** name (read from the database, so a renamed host is picked up on the next card). Every label keeps its distance to its answer from the example card, and the gap between one answer and the next label is the same all the way down (a little tighter than the example, to fit the extra field). The positions are in `accessCard` in [config/event.ts](config/event.ts).
+- **Fixed labels:** the blank template's page 2 is only the artwork, so the labels from the example ("Guest Type", "Table No.", the location, "Colour of the day", "THIS CARD ADMITS ONE") are drawn by the generator from `staticText`. Set it to `[]` if they are added to the template artwork instead.
+- **Font:** Noto Sans Bold stands in for the design's Canva Sans Bold (not openly licensed). It covers Yorùbá letters and tone marks. See [template/fonts/README.md](template/fonts/README.md) to change it.
+- **Names (both fields):** shown in capitals. A long name shrinks to fit, then goes onto two lines, and only if it still doesn't fit is the end shortened with "…". Characters the font lacks print as "?".
+- **Deployment:** the template and font are read from disk, so `next.config.ts` lists them in `outputFileTracingIncludes`. Keep that list in step if you move them.
 
 ## Tests
 
@@ -77,6 +90,6 @@ Requests are saved in PostgreSQL (`invitation_support_requests`). There is no em
 - An email address can be used for more than one request (e.g. a couple sharing an address). Each request is still one card for one person.
 - Only approved guests count towards capacity. Pending, rejected and cancelled guests never use a place or a seat.
 - A pending, rejected or cancelled guest can be approved. Approval re-reads the guest, checks the host still has a place, and seats them at the host's first table with a free seat, all under a per-host lock so simultaneous approvals can't overfill a table or approve one guest twice. If there is no room the error says what to do (cancel another invitation to free a place or seat), and the admin can then approve again. Only pending requests can be rejected.
-- The access card is marked **sent** only after the email succeeds; until then it is "not sent", and a failed send is "failed" so it can be resent. Emails are simulated for now ([lib/access-card.ts](lib/access-card.ts)).
+- The access card is marked **sent** only after the email succeeds; until then it is "not sent", and a failed send is "failed" so it can be resent. The card itself is real; sending the email is simulated for now (`sendAccessCard` in [lib/access-card.ts](lib/access-card.ts)) and needs Resend wired in.
 - Admins can move an approved guest to another of their host's tables, never past its capacity. A move automatically sends the guest a new card.
 - Cancelling an approved invitation keeps the record (table, approval and card details, plus a cancellation time) and frees the seat and the host's place at once. Nothing is deleted, and the guest can be approved again later.
