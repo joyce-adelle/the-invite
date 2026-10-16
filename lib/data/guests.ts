@@ -159,29 +159,81 @@ export async function createGuest(input: {
 }
 
 /**
- * Corrects a guest's name and email, in any status. The name may match another
- * guest's (admins can create duplicates), so `normalizedName` is suffixed when
- * needed, as in `createGuest`. `changed` says what actually differed: nothing
- * is written when it is neither.
+ * Corrects a guest's name, email and host, in any status. The name may match
+ * another guest's (admins can create duplicates), so `normalizedName` is
+ * suffixed when needed, as in `createGuest`. `changed` says what actually
+ * differed: nothing is written when nothing did. `invitedBy` is optional;
+ * leave it out to keep the host.
  *
- * An approved guest holds a card with the old name, sent to the old address,
- * so a change puts their card back to NOT_SENT until a new one is delivered
- * (an admin sends it; see lib/invitations.ts). Their seat doesn't change.
+ * Moving a guest to another host:
+ * - An approved guest needs a seat there, so the new host's capacity and
+ *   tables apply as they do for an approval: they get its first table with a
+ *   free seat, or the move is refused (HOST_FULL / TABLE_FULL) and nothing
+ *   changes. Their old seat frees up at once.
+ * - Anyone else just changes host. A table they kept as history belongs to the
+ *   old host, so it is cleared.
+ *
+ * An approved guest holds a card with the old name, address, host or table,
+ * so a change to any of them puts their card back to NOT_SENT until a new one
+ * is delivered (an admin sends it; see lib/invitations.ts).
  */
 export async function updateGuestDetails(
   id: string,
-  input: { name: string; email: string },
-): Promise<{ guest: Guest; changed: { name: boolean; email: boolean } }> {
+  input: { name: string; email: string; invitedBy?: string },
+): Promise<{ guest: Guest; changed: { name: boolean; email: boolean; host: boolean } }> {
   const base = requireNormalizedName(input.name);
   const email = normalizeEmail(input.email);
 
   return withUniqueNormalizedName(() =>
     prisma.$transaction(async (tx) => {
-      const current = await tx.guest.findUnique({ where: { id } });
-      if (!current) throw notFound(id);
+      const first = await tx.guest.findUnique({ where: { id }, select: { invitedBy: true } });
+      if (!first) throw notFound(id);
 
-      const changed = { name: current.name !== input.name, email: current.email !== email };
-      if (!changed.name && !changed.email) return { guest: current, changed };
+      const moving = input.invitedBy !== undefined && input.invitedBy !== first.invitedBy;
+      if (moving) {
+        // Both hosts' seats are about to change. Taking the locks in a fixed
+        // order means two opposite moves can't wait on each other.
+        for (const hostId of [first.invitedBy, input.invitedBy!].sort()) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seating:${hostId}`}))`;
+        }
+      }
+      // Read again now the lock is held: the guest may have been approved or cancelled meanwhile.
+      const current = await tx.guest.findUniqueOrThrow({ where: { id } });
+
+      const newHost = moving ? await getHost(input.invitedBy!, tx) : null;
+      if (moving && !newHost) {
+        throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
+      }
+      const changed = {
+        name: current.name !== input.name,
+        email: current.email !== email,
+        host: moving && current.invitedBy !== input.invitedBy,
+      };
+      if (!changed.name && !changed.email && !changed.host) return { guest: current, changed };
+
+      const approved = current.status === GuestStatus.APPROVED;
+      let seat: { tableNumber: number | null } | undefined;
+      if (changed.host) {
+        if (approved) {
+          const occupancy = await readOccupancy(tx, newHost!);
+          if (occupancy.remaining === 0) {
+            throw new GuestError(
+              "HOST_FULL",
+              `${newHost!.name} has no invitations left, so this guest can't move there. Cancel another of their invitations to free a place, then try again.`,
+            );
+          }
+          const tableNumber = nextAvailableTable(occupancy);
+          if (tableNumber === null) {
+            throw new GuestError(
+              "TABLE_FULL",
+              `Every table for ${newHost!.name} is full, so there's no seat for this guest. Free a seat there, then try again.`,
+            );
+          }
+          seat = { tableNumber };
+        } else {
+          seat = { tableNumber: null };
+        }
+      }
 
       const guest = await tx.guest.update({
         where: { id },
@@ -191,7 +243,8 @@ export async function updateGuestDetails(
             normalizedName: await availableNormalizedName(tx, base, id),
           }),
           ...(changed.email && { email }),
-          ...(current.status === GuestStatus.APPROVED && { cardStatus: CardStatus.NOT_SENT }),
+          ...(changed.host && { invitedBy: input.invitedBy, ...seat }),
+          ...(approved && { cardStatus: CardStatus.NOT_SENT }),
         },
       });
       return { guest, changed };

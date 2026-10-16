@@ -50,9 +50,11 @@ function isRedirectError(error: unknown): boolean {
 export function GuestActions({
   guest,
   tables,
+  hosts,
 }: {
   guest: AdminGuest;
   tables: TableOccupancy[];
+  hosts: { id: string; name: string }[];
 }) {
   const [busy, startTransition] = useTransition();
   const [running, setRunning] = useState<string | null>(null);
@@ -98,6 +100,7 @@ export function GuestActions({
       open={dialog === "edit"}
       onOpenChange={(open) => setDialog(open ? "edit" : null)}
       guest={guest}
+      hosts={hosts}
     />
   );
 

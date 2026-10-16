@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/admin-session";
 import { isGuestError } from "@/lib/data/errors";
 import { GuestStatus } from "@/types/guest";
 import { cancelGuest, createGuest, rejectGuest, updateGuestDetails } from "@/lib/data/guests";
+import { getHost } from "@/lib/data/hosts";
 import { resolveSupportRequest } from "@/lib/data/support";
 import { deliveryMessage, resendMessage } from "@/lib/delivery-messages";
 import { approveInvitation, moveInvitationTable, resendAccessCard } from "@/lib/invitations";
@@ -88,12 +89,14 @@ export async function createGuestAction(input: {
 }
 
 /**
- * Corrects a guest's name or email, whatever their status. For an approved
- * guest the card they hold no longer matches, so the result says to send it again.
+ * Corrects a guest's name, email or host, whatever their status. Moving an
+ * approved guest to another host seats them there (or fails with the reason).
+ * Either way the card they hold no longer matches, so the result says to send
+ * it again.
  */
 export async function updateGuestAction(
   id: string,
-  input: { name: string; email: string },
+  input: { name: string; email: string; hostId?: string },
 ): Promise<AdminActionResult> {
   await requireAdmin();
 
@@ -101,17 +104,28 @@ export async function updateGuestAction(
   if (!parsed.success) {
     return { ok: false, message: "Please check the highlighted fields.", fieldErrors: parsed.fieldErrors };
   }
+  const hostId = input?.hostId;
+  if (hostId !== undefined && (typeof hostId !== "string" || !hostId || hostId.length > 64)) {
+    return { ok: false, message: UNKNOWN_HOST };
+  }
 
   return run(id, async (guestId) => {
-    const { guest, changed } = await updateGuestDetails(guestId, parsed.data);
-    if (!changed.name && !changed.email) return `No changes to save for ${guest.name}.`;
+    const { guest, changed } = await updateGuestDetails(guestId, { ...parsed.data, invitedBy: hostId });
+    if (!changed.name && !changed.email && !changed.host) return `No changes to save for ${guest.name}.`;
+
+    const host = changed.host ? await getHost(guest.invitedBy) : null;
+    const moved = host
+      ? guest.status === GuestStatus.APPROVED
+        ? ` They now belong to ${host.name} and are seated at table ${guest.tableNumber}.`
+        : ` They now belong to ${host.name}.`
+      : "";
     if (guest.status === GuestStatus.APPROVED) {
       return {
-        message: `${guest.name}'s details were updated. The card they were sent has the old details, so use “Send access card” to email them a new one.`,
+        message: `${guest.name}'s details were updated.${moved} The card they were sent has the old details, so use “Send access card” to email them a new one.`,
         notice: true,
       };
     }
-    return `${guest.name}'s details were updated.`;
+    return `${guest.name}'s details were updated.${moved}`;
   });
 }
 

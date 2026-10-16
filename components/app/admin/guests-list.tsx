@@ -21,10 +21,12 @@ export async function GuestsList({
   filters,
   hostName,
   tablesByHost,
+  hosts,
 }: {
   filters: DashboardFilters;
   hostName?: string;
   tablesByHost: Record<string, TableOccupancy[]>;
+  hosts: { id: string; name: string }[];
 }) {
   const { guests, ...pageInfo } = await getAdminGuests(
     {
@@ -73,6 +75,7 @@ export async function GuestsList({
               guest={guest}
               approvedView={approvedView}
               tables={tablesByHost[guest.invitedBy] ?? []}
+              hosts={hosts}
             />
           ))}
         </TableBody>

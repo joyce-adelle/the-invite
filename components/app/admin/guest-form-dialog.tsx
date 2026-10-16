@@ -53,6 +53,7 @@ type Props =
       open: boolean;
       onOpenChange: (open: boolean) => void;
       guest: AdminGuest;
+      hosts: Host[];
     };
 
 function isRedirectError(error: unknown): boolean {
@@ -61,7 +62,7 @@ function isRedirectError(error: unknown): boolean {
 }
 
 /**
- * Adds a guest (`create`) or corrects one's name and email (`edit`). The form
+ * Adds a guest (`create`) or corrects one's name, email and host (`edit`). The form
  * is only mounted while the dialog is open, so it starts fresh every time.
  */
 export function GuestFormDialog(props: Props) {
@@ -72,12 +73,14 @@ export function GuestFormDialog(props: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit guest details" : "Add a guest"}</DialogTitle>
+          <DialogTitle>
+            {editing ? "Edit guest details" : "Add a guest"}
+          </DialogTitle>
           <DialogDescription>
             {props.mode === "edit"
               ? props.guest.status === "APPROVED"
-                ? `Correct ${props.guest.name}'s name or email. The card they were sent will no longer match, so you'll need to send it again.`
-                : `Correct ${props.guest.name}'s name or email. ${props.guest.hostName} stays as their host.`
+                ? `Correct ${props.guest.name}'s details. Moving them to another host seats them at that host's first free table. Any change means the card they were sent no longer matches, so you'll need to send it again.`
+                : `Correct ${props.guest.name}'s name, email or host.`
               : "Adds the guest as a pending request, as if they had asked for an invitation. Two guests can share a name. Approve them from the list to seat them."}
           </DialogDescription>
         </DialogHeader>
@@ -95,12 +98,17 @@ function GuestForm(props: Props) {
       ? { name: props.guest.name, email: props.guest.email }
       : { name: "", email: "" },
   );
-  const [hostId, setHostId] = useState(props.mode === "create" ? (props.defaultHostId ?? "") : "");
+  const [hostId, setHostId] = useState(
+    props.mode === "create"
+      ? (props.defaultHostId ?? "")
+      : props.guest.invitedBy,
+  );
   const [hostError, setHostError] = useState<string>();
   const [errors, setErrors] = useState<InvitationRequestFieldErrors>({});
   const [formError, setFormError] = useState<string>();
 
-  const idPrefix = props.mode === "edit" ? `edit-${props.guest.id}` : "add-guest";
+  const idPrefix =
+    props.mode === "edit" ? `edit-${props.guest.id}` : "add-guest";
 
   function validateField(field: InvitationRequestField, next = values) {
     const result = parseInvitationRequest(next);
@@ -127,7 +135,9 @@ function GuestForm(props: Props) {
       const first = (["name", "email"] as const).find(
         (field) => !result.success && result.fieldErrors[field],
       );
-      document.getElementById(first ? `${idPrefix}-${first}` : `${idPrefix}-host`)?.focus();
+      document
+        .getElementById(first ? `${idPrefix}-${first}` : `${idPrefix}-host`)
+        ?.focus();
       return;
     }
 
@@ -135,7 +145,10 @@ function GuestForm(props: Props) {
       try {
         const outcome: AdminActionResult =
           props.mode === "edit"
-            ? await updateGuestAction(props.guest.id, result.data)
+            ? await updateGuestAction(props.guest.id, {
+                ...result.data,
+                hostId,
+              })
             : await createGuestAction({ ...result.data, hostId });
 
         if (!outcome.ok) {
@@ -150,7 +163,9 @@ function GuestForm(props: Props) {
       } catch (error) {
         // An expired session redirects to the login page, which is already under way.
         if (isRedirectError(error)) return;
-        setFormError("We couldn't reach the server. Check your connection and try again.");
+        setFormError(
+          "We couldn't reach the server. Check your connection and try again.",
+        );
       }
     });
   }
@@ -181,7 +196,9 @@ function GuestForm(props: Props) {
             onChange={(event) => handleChange("name", event.target.value)}
             onBlur={() => values.name && validateField("name")}
             aria-invalid={errors.name ? true : undefined}
-            aria-describedby={errors.name ? `${idPrefix}-name-error` : undefined}
+            aria-describedby={
+              errors.name ? `${idPrefix}-name-error` : undefined
+            }
             disabled={pending}
             required
           />
@@ -205,50 +222,59 @@ function GuestForm(props: Props) {
             onChange={(event) => handleChange("email", event.target.value)}
             onBlur={() => values.email && validateField("email")}
             aria-invalid={errors.email ? true : undefined}
-            aria-describedby={errors.email ? `${idPrefix}-email-error` : undefined}
+            aria-describedby={
+              errors.email ? `${idPrefix}-email-error` : undefined
+            }
             disabled={pending}
             required
           />
         }
       />
 
-      {props.mode === "create" && (
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-host`}>Invited by</Label>
-          <Select
-            value={hostId}
-            onValueChange={(next) => {
-              setHostId(next);
-              setHostError(undefined);
-            }}
-            disabled={pending}
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-host`}>Guest Type</Label>
+        <Select
+          value={hostId}
+          onValueChange={(next) => {
+            setHostId(next);
+            setHostError(undefined);
+          }}
+          disabled={pending}
+        >
+          <SelectTrigger
+            id={`${idPrefix}-host`}
+            className="w-full"
+            aria-invalid={hostError ? true : undefined}
+            aria-describedby={hostError ? `${idPrefix}-host-error` : undefined}
           >
-            <SelectTrigger
-              id={`${idPrefix}-host`}
-              className="w-full"
-              aria-invalid={hostError ? true : undefined}
-              aria-describedby={hostError ? `${idPrefix}-host-error` : undefined}
-            >
-              <SelectValue placeholder="Choose a host" />
-            </SelectTrigger>
-            <SelectContent>
-              {props.hosts.map((host) => (
-                <SelectItem key={host.id} value={host.id}>
-                  {host.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {hostError && (
-            <p id={`${idPrefix}-host-error`} role="alert" className="text-sm text-destructive">
-              {hostError}
-            </p>
-          )}
-        </div>
-      )}
+            <SelectValue placeholder="Choose a host" />
+          </SelectTrigger>
+          <SelectContent>
+            {props.hosts.map((host) => (
+              <SelectItem key={host.id} value={host.id}>
+                {host.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {hostError && (
+          <p
+            id={`${idPrefix}-host-error`}
+            role="alert"
+            className="text-sm text-destructive"
+          >
+            {hostError}
+          </p>
+        )}
+      </div>
 
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onOpenChange(false)}
+          disabled={pending}
+        >
           Cancel
         </Button>
         <Button type="submit" disabled={pending}>

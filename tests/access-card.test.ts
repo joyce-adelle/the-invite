@@ -15,7 +15,7 @@ import {
   type PDFPage,
 } from "pdf-lib";
 
-import { accessCard } from "@/config/event";
+import { accessCard, event } from "@/config/event";
 import {
   createAccessCardPdf,
   createGuestAccessCard,
@@ -529,12 +529,12 @@ describe("card for a stored guest", { skip: !isLocal && "DATABASE_URL is not a l
       assert.equal(calls.length, 1);
       const { payload } = calls[0];
       assert.equal(payload.to, "ada@example.com");
-      assert.equal(payload.subject, "Your access card for Ìyá Opeke @ 80");
+      assert.equal(payload.subject, `Your access card for ${event.name}`);
 
       // Everything the email must say: who, what, invited by, table, and keep the card.
       for (const body of [payload.text, payload.html]) {
         assert.match(body, /Dear Ada Lovelace,/);
-        assert.match(body, /delighted to welcome you to Ìyá Opeke @ 80/);
+        assert.ok(body.includes(`delighted to welcome you to ${event.name}`));
         assert.match(body, /Guest Type/);
         assert.match(body, /Lovelace Family/);
         assert.match(body, /Table 4/);

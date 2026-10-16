@@ -28,6 +28,9 @@ const url = process.env.DATABASE_URL ?? "";
 const isLocal = /^postgres(ql)?:\/\/[^@/]*@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(url);
 
 const HOST_ID = "test-edit";
+// A second host, capacity 1 with a single seat, so it is easy to fill.
+const OTHER_HOST_ID = "test-edit-b";
+const OWN_HOSTS = [HOST_ID, OTHER_HOST_ID];
 const ok = async () => ({ id: "test-email-id" });
 
 const add = (name: string, email = "guest@details-test.invalid") =>
@@ -43,9 +46,9 @@ async function rejectsWith(code: GuestErrorCode, promise: Promise<unknown>) {
 
 describe("adding and editing guests", { skip: !isLocal && "DATABASE_URL is not a local database" }, () => {
   const removeFixtures = async () => {
-    await prisma.guest.deleteMany({ where: { invitedBy: HOST_ID } });
-    await prisma.table.deleteMany({ where: { hostId: HOST_ID } });
-    await prisma.host.deleteMany({ where: { id: HOST_ID } });
+    await prisma.guest.deleteMany({ where: { invitedBy: { in: OWN_HOSTS } } });
+    await prisma.table.deleteMany({ where: { hostId: { in: OWN_HOSTS } } });
+    await prisma.host.deleteMany({ where: { id: { in: OWN_HOSTS } } });
   };
 
   before(async () => {
@@ -58,6 +61,14 @@ describe("adding and editing guests", { skip: !isLocal && "DATABASE_URL is not a
         tables: { create: [9301, 9302].map((number) => ({ number, capacity: 2 })) },
       },
     });
+    await prisma.host.create({
+      data: {
+        id: OTHER_HOST_ID,
+        name: "Other Edit Family",
+        capacity: 1,
+        tables: { create: [{ number: 9311, capacity: 1 }] },
+      },
+    });
   });
   beforeEach(() => {
     process.env.EMAIL_FROM = "TheInvite <invites@example.com>";
@@ -66,7 +77,7 @@ describe("adding and editing guests", { skip: !isLocal && "DATABASE_URL is not a
   });
   afterEach(async () => {
     mock.restoreAll();
-    await prisma.guest.deleteMany({ where: { invitedBy: HOST_ID } });
+    await prisma.guest.deleteMany({ where: { invitedBy: { in: OWN_HOSTS } } });
   });
   after(async () => {
     await removeFixtures();
@@ -109,6 +120,108 @@ describe("adding and editing guests", { skip: !isLocal && "DATABASE_URL is not a
     });
   });
 
+  describe("moving a guest to another host", () => {
+    const moveTo = (id: string, hostId: string, guest: Guest) =>
+      updateGuestDetails(id, { name: guest.name, email: guest.email, invitedBy: hostId });
+
+    it("changes a pending guest's host and nothing else", async () => {
+      const guest = await add("Zzedit Pending Mover");
+      const { guest: moved, changed } = await moveTo(guest.id, OTHER_HOST_ID, guest);
+      assert.deepEqual(changed, { name: false, email: false, host: true });
+      assert.equal(moved.invitedBy, OTHER_HOST_ID);
+      assert.equal(moved.status, "PENDING");
+      assert.equal(moved.tableNumber, null);
+    });
+
+    it("keeps the host when it is the same one, and reports no change", async () => {
+      const guest = await add("Zzedit Stays Put");
+      const { changed } = await moveTo(guest.id, HOST_ID, guest);
+      assert.deepEqual(changed, { name: false, email: false, host: false });
+    });
+
+    it("seats an approved guest at the new host's first free table and frees their old seat", async () => {
+      const { guest: seated } = await approveInvitation((await add("Zzedit Seated Mover")).id, ok);
+      assert.equal(seated.tableNumber, 9301);
+
+      const { guest, changed } = await moveTo(seated.id, OTHER_HOST_ID, seated);
+      assert.equal(changed.host, true);
+      assert.equal(guest.status, "APPROVED");
+      assert.equal(guest.invitedBy, OTHER_HOST_ID);
+      assert.equal(guest.tableNumber, 9311);
+      assert.equal(guest.cardStatus, "NOT_SENT", "the card names the old host and table");
+
+      assert.equal((await getHostOccupancy(HOST_ID)).approved, 0);
+      assert.equal((await getHostOccupancy(OTHER_HOST_ID)).approved, 1);
+    });
+
+    it("refuses when the new host has no invitations left, changing nothing", async () => {
+      await approveInvitation((await add("Zzedit Fills Other", "f@details-test.invalid")).id, ok).then(({ guest }) =>
+        moveTo(guest.id, OTHER_HOST_ID, guest),
+      );
+      const { guest: seated } = await approveInvitation((await add("Zzedit Turned Away")).id, ok);
+
+      await rejectsWith("HOST_FULL", moveTo(seated.id, OTHER_HOST_ID, seated));
+
+      const after = await fresh(seated.id);
+      assert.equal(after.invitedBy, HOST_ID);
+      assert.equal(after.tableNumber, seated.tableNumber);
+      assert.equal(after.cardStatus, "SENT", "a refused move leaves the card alone");
+    });
+
+    it("can still move a pending guest to a host that is full, since they take no seat yet", async () => {
+      await approveInvitation((await add("Zzedit Occupant")).id, ok).then(({ guest }) =>
+        moveTo(guest.id, OTHER_HOST_ID, guest),
+      );
+      const waiting = await add("Zzedit Waiting");
+      const { guest } = await moveTo(waiting.id, OTHER_HOST_ID, waiting);
+      assert.equal(guest.invitedBy, OTHER_HOST_ID);
+      await rejectsWith("HOST_FULL", approveInvitation(guest.id, ok));
+    });
+
+    it("clears the old host's table from a cancelled guest, who can be approved at the new host", async () => {
+      const cancelled = await cancelGuest((await approveInvitation((await add("Zzedit Cancelled Mover")).id, ok)).guest.id);
+      assert.equal(cancelled.tableNumber, 9301);
+
+      const { guest } = await moveTo(cancelled.id, OTHER_HOST_ID, cancelled);
+      assert.equal(guest.status, "CANCELLED");
+      assert.equal(guest.invitedBy, OTHER_HOST_ID);
+      assert.equal(guest.tableNumber, null);
+
+      const { guest: approvedAgain } = await approveInvitation(guest.id, ok);
+      assert.equal(approvedAgain.tableNumber, 9311);
+    });
+
+    it("refuses an unknown host", async () => {
+      const guest = await add("Zzedit Lost");
+      await rejectsWith("UNKNOWN_HOST", moveTo(guest.id, "no-such-host", guest));
+      assert.equal((await fresh(guest.id)).invitedBy, HOST_ID);
+    });
+
+    it("puts the new host and table on the next card", async () => {
+      const { guest: seated } = await approveInvitation((await add("Zzedit Card Mover")).id, ok);
+      await moveTo(seated.id, OTHER_HOST_ID, seated);
+
+      const mailer = fakeEmailClient();
+      await resendAccessCard(seated.id, (guest: Guest) => sendAccessCard(guest, { client: mailer.client }));
+
+      const [{ payload }] = mailer.calls;
+      assert.match(payload.text, /Guest Type: Other Edit Family\nYour table: Table 9311/);
+      const { drawn } = await readCard(new Uint8Array(payload.attachments![0].content));
+      const texts = drawn.map((d) => d.text);
+      assert.ok(texts.includes("OTHER EDIT FAMILY"), texts.join(" | "));
+      assert.ok(texts.includes("TABLE 9311"));
+      assert.ok(!texts.includes("EDIT FAMILY") && !texts.includes("TABLE 9301"));
+    });
+
+    it("lets opposite moves happen together without deadlocking", async () => {
+      // One guest per host, both moving to the other's host at the same moment.
+      const a = await add("Zzedit Swap A");
+      const b = await createGuest({ name: "Zzedit Swap B", email: "b@details-test.invalid", invitedBy: OTHER_HOST_ID });
+      const results = await Promise.all([moveTo(a.id, OTHER_HOST_ID, a), moveTo(b.id, HOST_ID, b)]);
+      assert.deepEqual(results.map((r) => r.guest.invitedBy), [OTHER_HOST_ID, HOST_ID]);
+    });
+  });
+
   describe("correcting a guest's details", () => {
     it("fixes a name and an email, storing the email trimmed and lowercase", async () => {
       const guest = await add("Zzedit Adaa Obi", "ada@wrong.invalid");
@@ -116,7 +229,7 @@ describe("adding and editing guests", { skip: !isLocal && "DATABASE_URL is not a
         name: "Zzedit Ada Obi",
         email: "  Ada@Right.INVALID ",
       });
-      assert.deepEqual(changed, { name: true, email: true });
+      assert.deepEqual(changed, { name: true, email: true, host: false });
       assert.equal(updated.name, "Zzedit Ada Obi");
       assert.equal(updated.email, "ada@right.invalid");
       assert.equal(updated.normalizedName, "zzeditadaobi");
@@ -125,10 +238,10 @@ describe("adding and editing guests", { skip: !isLocal && "DATABASE_URL is not a
     it("changes only what differs, and writes nothing when nothing does", async () => {
       const guest = await add("Zzedit Same", "same@details-test.invalid");
       const noop = await updateGuestDetails(guest.id, { name: "Zzedit Same", email: "SAME@details-test.invalid" });
-      assert.deepEqual(noop.changed, { name: false, email: false });
+      assert.deepEqual(noop.changed, { name: false, email: false, host: false });
 
       const emailOnly = await updateGuestDetails(guest.id, { name: "Zzedit Same", email: "other@details-test.invalid" });
-      assert.deepEqual(emailOnly.changed, { name: false, email: true });
+      assert.deepEqual(emailOnly.changed, { name: false, email: true, host: false });
       assert.equal(emailOnly.guest.name, "Zzedit Same");
     });
 

@@ -11,10 +11,12 @@ export function GuestRow({
   guest,
   approvedView,
   tables,
+  hosts,
 }: {
   guest: AdminGuest;
   approvedView: boolean;
   tables: TableOccupancy[];
+  hosts: { id: string; name: string }[];
 }) {
   return (
     <TableRow>
@@ -55,7 +57,7 @@ export function GuestRow({
         </>
       )}
       <TableCell className="pr-4 text-right">
-        <GuestActions guest={guest} tables={tables} />
+        <GuestActions guest={guest} tables={tables} hosts={hosts} />
       </TableCell>
     </TableRow>
   );

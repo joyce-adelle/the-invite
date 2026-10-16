@@ -27,6 +27,7 @@ export async function Dashboard({
   const tabCounts = host ? host.byStatus : counts.byStatus;
   const tabTotal = host ? Object.values(host.byStatus).reduce((a, b) => a + b, 0) : counts.total;
 
+  const hostOptions = counts.hosts.map((h) => ({ id: h.hostId, name: h.name }));
   const tablesByHost = Object.fromEntries(counts.hosts.map((h) => [h.hostId, h.tables]));
 
   return (
@@ -36,7 +37,7 @@ export async function Dashboard({
         description="Review invitation requests and manage approved guests."
         actions={
           <AddGuestButton
-            hosts={counts.hosts.map((h) => ({ id: h.hostId, name: h.name }))}
+            hosts={hostOptions}
             defaultHostId={host?.hostId}
           />
         }
@@ -76,7 +77,12 @@ export async function Dashboard({
           key={`${filters.status}:${filters.host}:${filters.page}`}
           fallback={<ListSkeleton />}
         >
-          <GuestsList filters={filters} hostName={host?.name} tablesByHost={tablesByHost} />
+          <GuestsList
+            filters={filters}
+            hostName={host?.name}
+            tablesByHost={tablesByHost}
+            hosts={hostOptions}
+          />
         </Suspense>
       </section>
     </div>
