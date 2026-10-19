@@ -14,7 +14,8 @@ export type EmailMessage = {
   subject: string;
   html: string;
   text: string;
-  attachments?: { filename: string; content: Buffer }[];
+  /** With a `contentId`, an image is shown inside the HTML (`<img src="cid:…">`) instead of listed as a file. */
+  attachments?: { filename: string; content: Buffer; contentType?: string; contentId?: string }[];
 };
 
 /** The part of the Resend client this app uses; tests supply their own. */

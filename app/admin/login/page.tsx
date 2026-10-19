@@ -11,13 +11,13 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function AdminLoginPage() {
+export default function AdminLoginPage({ searchParams }: PageProps<"/admin/login">) {
   return (
     <PublicShell>
       <PageHeader variant="public" eyebrow="Admin" title={event.name} />
       <div className="mt-10 rounded-2xl border border-border bg-card/60 p-6 shadow-sm sm:p-8">
         <Suspense fallback={<Skeleton className="h-60 w-full" />}>
-          <LoginGate />
+          <LoginGate searchParams={searchParams} />
         </Suspense>
       </div>
     </PublicShell>

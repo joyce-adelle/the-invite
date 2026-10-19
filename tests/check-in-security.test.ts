@@ -53,7 +53,7 @@ describe("who can see a guest at the door", () => {
     assert.match(gate, /redirect\(next \?\? "\/admin"\)/);
     assert.match(
       read("components/app/admin/login-form.tsx"),
-      /router\.replace\(next \?\? "\/admin"\)/,
+      /callbackURL: next \?\? "\/admin"/,
     );
   });
 
@@ -116,7 +116,7 @@ describe("who can let a guest in", () => {
     for (const file of [
       "lib/actions/check-in.ts",
       "lib/data/check-in.ts",
-      "lib/check-in.ts",
+      "lib/check-in/check-in.ts",
       "lib/access-card.ts",
     ]) {
       const logs = read(file).match(/console\.\w+\([^;]*\);/g) ?? [];
@@ -146,7 +146,7 @@ describe("where the token must not go", () => {
 
   it("is only built into an address inside the server-only modules", () => {
     for (const file of [
-      "lib/check-in.ts",
+      "lib/check-in/check-in.ts",
       "lib/data/check-in.ts",
       "lib/access-card.ts",
     ]) {
