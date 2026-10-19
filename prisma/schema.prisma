@@ -76,11 +76,16 @@ model Guest {
   approvedAt     DateTime?   @map("approved_at") @db.Timestamptz(3)
   cardSentAt     DateTime?   @map("card_sent_at") @db.Timestamptz(3)
   cancelledAt    DateTime?   @map("cancelled_at") @db.Timestamptz(3)
+  checkInToken   String?     @unique @map("check_in_token")
+  checkedInAt    DateTime?   @map("checked_in_at") @db.Timestamptz(3)
+  /// The email of the admin who checked them in. 
+  checkedInBy    String?     @map("checked_in_by")
 
   // Capacity and occupancy are derived from APPROVED rows per host and per table.
   @@index([email])
   @@index([invitedBy, status])
   @@index([status, tableNumber])
+  @@index([status, checkedInAt])
   @@map("guests")
 }
 

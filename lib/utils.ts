@@ -1,5 +1,7 @@
 import { HostOccupancy, HostWithTables } from "@/types/hosts";
 
+import { Attendance } from "@/types/check-in";
+
 export { cn } from "cn";
 
 /** The emails in ADMIN_EMAILS (comma-separated), normalized. */
@@ -59,4 +61,13 @@ export function hostOccupancy(
 /** First table, in the order given, with a free seat; null if none. */
 export function nextAvailableTable(occupancy: HostOccupancy): number | null {
   return occupancy.tables.find((table) => table.remaining > 0)?.number ?? null;
+}
+
+export function attendanceOf(approved: number, checkedIn: number): Attendance {
+  return {
+    approved,
+    checkedIn,
+    notCheckedIn: Math.max(0, approved - checkedIn),
+    percent: approved > 0 ? Math.round((checkedIn / approved) * 100) : 0,
+  };
 }

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { generateCheckInToken } from "@/lib/check-in/check-in";
 import { GuestError } from "@/lib/data/errors";
 import { getHost, getHosts } from "@/lib/data/hosts";
 import { prisma } from "@/lib/prisma";
@@ -10,9 +11,10 @@ import {
   type Guest,
   type PrismaClient,
 } from "@/lib/generated/prisma/client";
-import { hostOccupancy, nextAvailableTable, normalizeEmail, normalizeName } from "../utils";
+import { attendanceOf, hostOccupancy, nextAvailableTable, normalizeEmail, normalizeName } from "../utils";
 import type { AdminGuest } from "@/types/guest";
 import { HostOccupancy, HostWithTables } from "@/types/hosts";
+import { Attendance } from "@/types/check-in";
 
 
 // Guest persistence. All Prisma access for guests goes through this module.
@@ -49,9 +51,14 @@ export type AdminGuestPage = {
 
 /** Admin lists: one page of guests with their host's name. The review queue is oldest first. */
 export async function getAdminGuests(
-  filter: { status?: GuestStatus; invitedBy?: string },
+  filter: { status?: GuestStatus; invitedBy?: string; checkedIn?: boolean },
   { page, pageSize }: { page: number; pageSize: number },
 ): Promise<AdminGuestPage> {
+  const { checkedIn, ...match } = filter;
+  const where: Prisma.GuestWhereInput = {
+    ...match,
+    ...(checkedIn !== undefined && { checkedInAt: checkedIn ? { not: null } : null }),
+  };
   const orderBy: Prisma.GuestOrderByWithRelationInput[] = [
     filter.status === GuestStatus.PENDING
       ? { createdAt: "asc" }
@@ -62,17 +69,20 @@ export async function getAdminGuests(
     { id: "asc" },
   ];
 
-  const total = await prisma.guest.count({ where: filter });
+  const total = await prisma.guest.count({ where });
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   // E.g. the last guest on the final page was just actioned.
   const currentPage = Math.min(Math.max(1, page), totalPages);
 
   const rows = await prisma.guest.findMany({
-    where: filter,
+    where,
     orderBy,
     skip: (currentPage - 1) * pageSize,
     take: pageSize,
     include: { host: { select: { name: true } } },
+    // The list goes to the browser, and the check-in token is a secret that
+    // belongs on the card alone.
+    omit: { checkInToken: true },
   });
 
   return {
@@ -266,7 +276,8 @@ export async function updateGuestDetails(
  * again clears `cancelledAt`: the invitation is live once more.
  *
  * The card is left NOT_SENT: it only becomes SENT once the email really goes
- * out (lib/invitations.ts).
+ * out (lib/invitations.ts). The guest gets their check-in token here, if they
+ * don't have one yet.
  */
 export function approveGuest(id: string): Promise<Guest> {
   return withHostLock(id, async (tx, guest, host) => {
@@ -298,6 +309,8 @@ export function approveGuest(id: string): Promise<Guest> {
         cardStatus: CardStatus.NOT_SENT,
         cardSentAt: null,
         cancelledAt: null,
+        // Made once and kept: approving someone again reuses the code on their card.
+        checkInToken: guest.checkInToken ?? generateCheckInToken(),
       },
     });
   });
@@ -384,14 +397,16 @@ export async function updateCardStatus(id: string, cardStatus: CardStatus): Prom
 export type DashboardCounts = {
   total: number;
   byStatus: Record<GuestStatus, number>;
+  attendance: Attendance;
   hosts: (HostOccupancy & { pending: number; byStatus: Record<GuestStatus, number> })[];
 };
 
 export async function getDashboardCounts(): Promise<DashboardCounts> {
-  const [hosts, byHostAndStatus, byTable] = await Promise.all([
+  const [hosts, byHostAndStatus, byTable, checkedIn] = await Promise.all([
     getHosts(),
     prisma.guest.groupBy({ by: ["invitedBy", "status"], _count: { _all: true } }),
     approvedByTable(prisma),
+    prisma.guest.count({ where: { status: GuestStatus.APPROVED, checkedInAt: { not: null } } }),
   ]);
 
   const byStatus = Object.fromEntries(
@@ -404,6 +419,7 @@ export async function getDashboardCounts(): Promise<DashboardCounts> {
   for (const row of byHostAndStatus) byStatus[row.status] += row._count._all;
 
   return {
+    attendance: attendanceOf(byStatus.APPROVED, checkedIn),
     total: byHostAndStatus.reduce((sum, row) => sum + row._count._all, 0),
     byStatus,
     hosts: hosts.map((host) => ({

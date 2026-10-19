@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 
 import { AddGuestButton } from "@/components/app/admin/add-guest-button";
+import { AttendanceCards } from "@/components/app/admin/attendance-cards";
+import { CheckInFilter } from "@/components/app/admin/check-in-filter";
 import { GuestsList } from "@/components/app/admin/guests-list";
 import { HostCapacity } from "@/components/app/admin/host-capacity";
 import { HostFilter } from "@/components/app/admin/host-filter";
@@ -50,6 +52,18 @@ export async function Dashboard({
         <StatsCards counts={counts} />
       </section>
 
+      <section aria-labelledby="attendance-heading" className="space-y-3">
+        <div>
+          <h2 id="attendance-heading" className="text-lg font-semibold">
+            Attendance
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Approved guests who have checked in at the door.
+          </p>
+        </div>
+        <AttendanceCards attendance={counts.attendance} />
+      </section>
+
       <section aria-labelledby="capacity-heading" className="space-y-3">
         <div>
           <h2 id="capacity-heading" className="text-lg font-semibold">
@@ -68,13 +82,13 @@ export async function Dashboard({
         </h2>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <StatusTabs filters={filters} counts={{ ...tabCounts, all: tabTotal }} />
-          <HostFilter
-            hosts={counts.hosts.map((h) => ({ id: h.hostId, name: h.name }))}
-            filters={filters}
-          />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {filters.status === "approved" && <CheckInFilter filters={filters} />}
+            <HostFilter hosts={hostOptions} filters={filters} />
+          </div>
         </div>
         <Suspense
-          key={`${filters.status}:${filters.host}:${filters.page}`}
+          key={`${filters.status}:${filters.host}:${filters.checkIn}:${filters.page}`}
           fallback={<ListSkeleton />}
         >
           <GuestsList
