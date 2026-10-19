@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  checkInToFlag,
   PAGE_SIZE,
   viewToStatus,
   type DashboardFilters,
@@ -32,6 +33,7 @@ export async function GuestsList({
     {
       status: viewToStatus(filters.status),
       invitedBy: filters.host === "all" ? undefined : filters.host,
+      checkedIn: checkInToFlag(filters.checkIn),
     },
     { page: filters.page, pageSize: PAGE_SIZE },
   );
@@ -53,6 +55,7 @@ export async function GuestsList({
               <>
                 <TableHead>Table</TableHead>
                 <TableHead>Card</TableHead>
+                <TableHead>Check-in</TableHead>
                 <TableHead className="hidden lg:table-cell">Approved</TableHead>
               </>
             ) : (

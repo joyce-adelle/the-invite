@@ -1,6 +1,7 @@
 import { CardStatusBadge } from "@/components/app/admin/card-status-badge";
 import { DateCell } from "@/components/app/admin/date-cell";
 import { GuestActions } from "@/components/app/admin/guest-actions";
+import { Badge } from "@/components/ui/badge";
 import { GuestStatusBadge } from "@/components/app/admin/guest-status-badge";
 import { TableCell, TableRow } from "@/components/ui/table";
 import type { AdminGuest } from "@/types/guest";
@@ -41,6 +42,18 @@ export function GuestRow({
           <TableCell className="tabular-nums">{guest.tableNumber ?? "—"}</TableCell>
           <TableCell>
             <CardStatusBadge status={guest.cardStatus} />
+          </TableCell>
+          <TableCell>
+            {guest.checkedInAt ? (
+              <>
+                <Badge variant="success">Checked in</Badge>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  <DateCell value={guest.checkedInAt} time />
+                </div>
+              </>
+            ) : (
+              <Badge variant="secondary">Not yet</Badge>
+            )}
           </TableCell>
           <TableCell className="hidden lg:table-cell">
             <DateCell value={guest.approvedAt} />

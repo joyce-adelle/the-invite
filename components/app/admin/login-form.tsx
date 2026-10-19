@@ -1,22 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 
-import Field from "@/components/common/field";
 import { Button } from "@/components/ui/button";
+import Field from "@/components/common/field";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { useState } from "react";
 
 // Deliberately the same wording for a wrong password and an address that
 // isn't an admin, so the form doesn't reveal who is on the list.
 const INVALID_CREDENTIALS = "Incorrect email or password.";
-const TOO_MANY_ATTEMPTS = "Too many attempts. Please wait a minute and try again.";
+const TOO_MANY_ATTEMPTS =
+  "Too many attempts. Please wait a minute and try again.";
 const GENERIC_ERROR = "We couldn't sign you in. Please try again.";
 
-export function LoginForm() {
-  const router = useRouter();
+/** `next` is an address already checked by the server (safeReturnPath); without one, sign-in goes to the dashboard. */
+export function LoginForm({ next }: { next?: string }) {
   const [pending, setPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string>();
@@ -35,7 +35,11 @@ export function LoginForm() {
     setPending(true);
     setError(undefined);
     try {
-      const { error } = await authClient.signIn.email({ email, password });
+      const { error } = await authClient.signIn.email({
+        email,
+        password,
+        callbackURL: next ?? "/admin",
+      });
       if (error) {
         setError(
           error.status === 429
@@ -47,9 +51,7 @@ export function LoginForm() {
         setPending(false);
         return;
       }
-      // Stays disabled while the dashboard loads.
-      router.replace("/admin");
-      router.refresh();
+      // Better Auth is now loading the callbackURL; the form stays disabled until it does.
     } catch {
       setError(GENERIC_ERROR);
       setPending(false);
@@ -115,7 +117,12 @@ export function LoginForm() {
         }
       />
 
-      <Button type="submit" size="lg" className="h-11 w-full text-base" disabled={pending}>
+      <Button
+        type="submit"
+        size="lg"
+        className="h-11 w-full text-base"
+        disabled={pending}
+      >
         {pending && <Loader2 className="animate-spin" aria-hidden />}
         {pending ? "Signing in…" : "Sign in"}
       </Button>

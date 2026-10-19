@@ -36,6 +36,7 @@ const details = (overrides: Partial<AccessCardDetails> = {}): AccessCardDetails 
   hostName: "Adelusi Family",
   status: "APPROVED",
   tableNumber: 7,
+  checkInUrl: "https://invite.example.test/check-in/AAAAAAAAAAAAAAAAAAAAAAAA",
   ...overrides,
 });
 const makeCard = (overrides: Partial<AccessCardDetails> = {}) => createAccessCardPdf(details(overrides));
@@ -164,7 +165,11 @@ describe("access card PDF", () => {
 
     it("keeps page 2's original artwork and only adds to it", async () => {
       const { doc, page2 } = await readCard(await makeCard());
-      assert.equal(fingerprint(doc, page2, true), fingerprint(template, template.getPage(1), true));
+      // The one addition to the artwork is the check-in QR picture (see check-in-qr.test.ts).
+      const original = fingerprint(doc, page2, true)
+        .split("\n")
+        .filter((line) => !line.startsWith("/Image-"));
+      assert.equal(original.join("\n"), fingerprint(template, template.getPage(1), true));
     });
 
     it("never modifies or writes to the source files", async () => {
@@ -478,6 +483,9 @@ describe("card for a stored guest", { skip: !isLocal && "DATABASE_URL is not a l
     approvedAt: new Date(),
     cardSentAt: null,
     cancelledAt: null,
+    checkInToken: "BBBBBBBBBBBBBBBBBBBBBBBB",
+    checkedInAt: null,
+    checkedInBy: null,
     ...overrides,
   });
   const clean = async () => {
@@ -543,7 +551,8 @@ describe("card for a stored guest", { skip: !isLocal && "DATABASE_URL is not a l
       }
       assert.match(payload.text, /Guest Type: Lovelace Family\nYour table: Table 4/);
 
-      assert.equal(payload.attachments?.length, 1);
+      // The card as a PDF, plus the check-in QR code shown inside the email (check-in-qr.test.ts).
+      assert.equal(payload.attachments?.length, 2);
       const [attachment] = payload.attachments!;
       assert.equal(attachment.filename, "access-card-ada-lovelace.pdf");
       assert.equal(attachment.content.subarray(0, 5).toString(), "%PDF-");

@@ -88,15 +88,11 @@ describe("the pages after a request", () => {
   const read = (path: string) => readFileSync(path, "utf8");
 
   it("have a Back link, and no other way back", () => {
-    const received = read("app/invite/[hostId]/received/page.tsx") + read("components/app/invitation/result-page.tsx");
-    assert.match(received, /backTo="start"/);
-    assert.match(read("components/app/invitation/result-page.tsx"), /Back<\/BackLink>/);
+    assert.match(read("components/app/invitation/result-page.tsx"), /<BackLink href="\/">Back<\/BackLink>/);
     assert.doesNotMatch(read("components/app/invitation/request-confirmation.tsx"), /Back to the start/);
-  });
-
-  it("go back to the host's form from the help page and to the start from the received page", () => {
-    assert.match(read("app/invite/[hostId]/help/page.tsx"), /backTo="form"/);
-    assert.match(read("app/invite/[hostId]/received/page.tsx"), /backTo="start"/);
+    for (const page of ["received", "help"]) {
+      assert.match(read(`app/invite/[hostId]/${page}/page.tsx`), /<ResultPage params=\{params\}>/);
+    }
   });
 
   it("keep the guest's details out of the address: the action only uses the host and the page", () => {

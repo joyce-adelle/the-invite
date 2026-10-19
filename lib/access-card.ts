@@ -7,6 +7,8 @@ import fontkit, { type Font as ShapingFont } from "@pdf-lib/fontkit";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
 import { accessCard, event } from "@/config/event";
+import { checkInUrl, createCheckInQr } from "@/lib/check-in/check-in";
+import { ensureCheckInToken } from "@/lib/data/check-in";
 import { getPublicHost } from "@/lib/data/hosts";
 import { sendEmail, type EmailClient } from "@/lib/email";
 import { GuestStatus, type Guest } from "@/types/guest";
@@ -16,9 +18,13 @@ import { GuestStatus, type Guest } from "@/types/guest";
 // are drawn onto page 2. Every card is made in memory from a fresh copy of the template, the
 // source files are never modified, and nothing generated is stored.
 
-/** What a card is made from: the guest, and the name of the host who invited them. */
+/**
+ * What a card is made from: the guest, the name of the host who invited them,
+ * and the address its QR code opens (which carries the guest's check-in token).
+ */
 export type AccessCardDetails = Pick<Guest, "id" | "name" | "status" | "tableNumber"> & {
   hostName: string;
+  checkInUrl: string;
 };
 
 type NameField = typeof accessCard.hostName;
@@ -255,6 +261,16 @@ export async function createAccessCardPdf(card: AccessCardDetails): Promise<Uint
   const table = accessCard.tableNumber;
   draw(page, font, `${table.prefix} ${card.tableNumber}`, table.x, table.baseline, table.size);
 
+  // The check-in QR code, bottom right. Its picture already has its white quiet zone.
+  const qr = await doc.embedPng(await createCheckInQr(card.checkInUrl));
+  const box = page.getCropBox();
+  page.drawImage(qr, {
+    x: box.x + box.width - accessCard.qr.right - accessCard.qr.size,
+    y: box.y + accessCard.qr.bottom,
+    width: accessCard.qr.size,
+    height: accessCard.qr.size,
+  });
+
   return doc.save();
 }
 
@@ -265,9 +281,26 @@ async function hostNameOf(guest: Guest): Promise<string> {
   return host.name;
 }
 
+/**
+ * What the card's QR code opens, from the guest's own check-in token. A guest
+ * approved before QR codes existed gets their token here, once; everyone else's
+ * is simply read, so regenerating or resending a card never changes it.
+ */
+async function checkInUrlOf(guest: Guest): Promise<string> {
+  // Checked first, so a guest with no card is refused for that reason.
+  if (guest.status !== GuestStatus.APPROVED || guest.tableNumber === null) {
+    throw new Error(`Guest ${guest.id} isn't approved with a table, so has no access card.`);
+  }
+  return checkInUrl(guest.checkInToken ?? (await ensureCheckInToken(guest.id)));
+}
+
 /** The card for a guest, naming the host who invited them. Throws if the host can't be found. */
 export async function createGuestAccessCard(guest: Guest): Promise<Uint8Array> {
-  return createAccessCardPdf({ ...guest, hostName: await hostNameOf(guest) });
+  return createAccessCardPdf({
+    ...guest,
+    hostName: await hostNameOf(guest),
+    checkInUrl: await checkInUrlOf(guest),
+  });
 }
 
 // --- The email ---
@@ -293,6 +326,9 @@ function attachmentName(name: string): string {
   return `access-card-${slug || "guest"}.pdf`;
 }
 
+/** The inline QR image in the email is referenced by this id (`cid:`) in the HTML. */
+const QR_CONTENT_ID = "check-in-qr";
+
 /**
  * The one email every guest gets
  */
@@ -304,6 +340,8 @@ function cardEmail(guest: Guest, hostName: string) {
   const welcome = `We are delighted to welcome you to ${event.name}, and so glad you will be celebrating with us.`;
   const note =
     "Your personal access card is attached to this email as a PDF. Please keep it safe and bring it with you, printed or on your phone, as you will need it at the entrance. Each card admits one guest.";
+  const qrNote =
+    "At the event, show the QR code on your attached card, or the one in this email, at the entrance.";
   const closing = "With warm wishes,";
   const details: [string, string][] = [
     ["Guest Type", hostName],
@@ -315,6 +353,7 @@ function cardEmail(guest: Guest, hostName: string) {
     welcome,
     details.map(([label, value]) => `${label}: ${value}`).join("\n"),
     note,
+    qrNote,
     `${closing}\n${event.name}`,
   ].join("\n\n");
 
@@ -352,6 +391,12 @@ function cardEmail(guest: Guest, hostName: string) {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#fbf6e9" style="background-color:#fbf6e9;border:1px solid #e6d6a8;border-radius:8px;margin:0 0 26px">
 <tr>${detailCells}</tr>
 </table>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 12px">
+<tr><td align="center" bgcolor="#ffffff" style="background-color:#ffffff;border:1px solid #e6d6a8;border-radius:8px;padding:10px">
+<img src="cid:${QR_CONTENT_ID}" width="176" height="176" alt="Your check-in QR code" style="display:block;width:176px;height:176px;border:0">
+</td></tr>
+</table>
+<p style="margin:0 0 20px;font-size:13px;line-height:21px;color:#6b5e63">${e(qrNote)}</p>
 <p style="margin:0 0 28px;font-size:14px;line-height:23px;color:#6b5e63">${e(note)}</p>
 <div style="height:1px;width:56px;background-color:#e6d6a8;line-height:1px;font-size:1px;margin:0 auto 22px">&nbsp;</div>
 <p style="margin:0 0 4px;color:#6b5e63">${e(closing)}</p>
@@ -366,7 +411,8 @@ function cardEmail(guest: Guest, hostName: string) {
 }
 
 /**
- * Emails the guest their access card as a PDF attachment: the card is
+ * Emails the guest their access card as a PDF attachment, with the same
+ * check-in QR code shown in the email itself: the card is
  * generated now, from the guest as they are now, so a changed table shows on
  * it. Resolves once Resend has accepted the email and throws if it didn't, so
  * callers record SENT or FAILED from the outcome. A card that can't be
@@ -381,7 +427,10 @@ export async function sendAccessCard(
   { client }: { client?: EmailClient } = {},
 ): Promise<{ id: string }> {
   const hostName = await hostNameOf(guest);
-  const pdf = await createAccessCardPdf({ ...guest, hostName });
+  // One address for both: the QR code in the PDF and the one in the email.
+  const url = await checkInUrlOf(guest);
+  const pdf = await createAccessCardPdf({ ...guest, hostName, checkInUrl: url });
+  const qr = await createCheckInQr(url);
   const { subject, text, html } = cardEmail(guest, hostName);
 
   return sendEmail(
@@ -390,7 +439,11 @@ export async function sendAccessCard(
       subject,
       text,
       html,
-      attachments: [{ filename: attachmentName(guest.name), content: Buffer.from(pdf) }],
+      attachments: [
+        { filename: attachmentName(guest.name), content: Buffer.from(pdf) },
+        // Shown inside the email itself, so a guest can hold their phone up at the door.
+        { filename: "check-in-qr.png", content: qr, contentType: "image/png", contentId: QR_CONTENT_ID },
+      ],
     },
     `access-card/${guest.id}`,
     { client },

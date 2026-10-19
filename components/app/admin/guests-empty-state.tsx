@@ -34,7 +34,12 @@ export function GuestsEmptyState({
   filters: DashboardFilters;
   hostName?: string;
 }) {
-  const { title, hint } = COPY[filters.status];
+  const { title, hint } =
+    filters.checkIn === "checked-in"
+      ? { title: "No guests have checked in", hint: "Guests appear here once they are checked in at the door." }
+      : filters.checkIn === "not-checked-in"
+        ? { title: "Everyone has checked in", hint: "No approved guest is still waiting to check in." }
+        : COPY[filters.status];
   return (
     <Card className="items-center py-12 text-center">
       <Inbox className="size-8 text-muted-foreground" aria-hidden />
@@ -45,6 +50,14 @@ export function GuestsEmptyState({
         </p>
         <p className="mt-1 text-sm text-muted-foreground">{hint}</p>
       </div>
+      {filters.checkIn !== "all" && (
+        <Link
+          href={dashboardHref({ ...filters, checkIn: "all", page: 1 })}
+          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          Show all approved guests
+        </Link>
+      )}
       {filters.host !== "all" && (
         <Link
           href={dashboardHref({ ...filters, host: "all", page: 1 })}

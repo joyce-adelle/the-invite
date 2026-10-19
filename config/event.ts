@@ -82,6 +82,15 @@ export const accessCard = {
     twoLines: { baseline: 50.45, lineHeight: 7.6 },
   } satisfies NameField,
 
+  /**
+   * The check-in QR code, in the bottom-right corner of page 2. `size` is the
+   * whole square, white quiet zone included, so the code needs nothing more
+   * around it. `right` and `bottom` are its distance from those edges of the
+   * visible card. It sits clear of the text on its left; the flowers behind it
+   * are covered by its white square, which is what keeps it scannable.
+   */
+  qr: { size: 56, right: 6, bottom: 6 },
+
   /** Printed as "TABLE 7", using the guest's actual table number. */
   tableNumber: { x: 16.05, baseline: 75.69, size: 7.98, prefix: "TABLE" },
 
