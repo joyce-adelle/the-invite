@@ -11,7 +11,6 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
-    "auth:hash-password": "tsx scripts/hash-password.ts",
     "test": "tsx --conditions=react-server --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {
