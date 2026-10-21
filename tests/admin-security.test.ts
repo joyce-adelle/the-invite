@@ -74,7 +74,7 @@ describe("who can use the admin actions", () => {
     for (const file of [
       "components/app/admin/dashboard.tsx",
       "components/app/admin/support-requests.tsx",
-      "components/app/admin/check-in-users.tsx",
+      "components/app/admin/staff-accounts.tsx",
     ]) {
       assert.match(readFileSync(file, "utf8"), /await requireAdmin\(\)/, file);
     }

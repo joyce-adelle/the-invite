@@ -162,7 +162,7 @@ describe("check-in accounts, and who may manage them", () => {
 
   it("makes every account action check for an active admin before anything else", () => {
     const names = [...actions.matchAll(/export async function (\w+Action)\(/g)].map((m) => m[1]);
-    assert.deepEqual(names.sort(), ["createCheckInUserAction", "resetCheckInUserPasswordAction", "setCheckInUserDisabledAction"]);
+    assert.deepEqual(names.sort(), ["createAdminUserAction", "createCheckInUserAction", "resetCheckInUserPasswordAction", "setCheckInUserDisabledAction"]);
     for (const name of names) {
       const start = actions.indexOf(`function ${name}(`);
       const body = actions.slice(start, actions.indexOf("\nexport ", start + 1) >>> 0 || undefined);
@@ -173,14 +173,15 @@ describe("check-in accounts, and who may manage them", () => {
   });
 
   it("passes the acting admin's own headers to Better Auth, so it checks their role too", () => {
-    for (const call of ["createCheckInUser(await headers()", "setCheckInUserDisabled(await headers()", "resetCheckInUserPassword(await headers()"]) {
+    for (const call of ["createCheckInUser(await headers()", "createAdminUser(await headers()", "setCheckInUserDisabled(await headers()", "resetCheckInUserPassword(await headers()"]) {
       assert.ok(actions.includes(call), call);
     }
     const lib = read("lib/check-in-users.ts");
-    for (const api of ["auth.api.createUser({\n      headers", "auth.api.banUser({ headers", "auth.api.unbanUser({ headers", "auth.api.setUserPassword({ headers", "auth.api.revokeUserSessions({ headers"]) {
-      assert.ok(lib.includes(api.replace("\\n", "\n")), api);
+    for (const api of ["createUser", "banUser", "unbanUser", "setUserPassword", "revokeUserSessions"]) {
+      assert.match(lib, new RegExp(`auth\\.api\\.${api}\\(\\{\\s*headers`), api);
     }
-    assert.match(lib, /role: ROLE\.CHECK_IN/, "accounts made here are always check-in accounts");
+    assert.match(lib, /createAccount\(headers, input, ROLE\.CHECK_IN\)/, "check-in accounts are made with that role");
+    assert.match(lib, /createAccount\(headers, input, ROLE\.ADMIN\)/, "and admins with theirs, never a role from the browser");
     assert.match(lib, /where: \{ id, role: ROLE\.CHECK_IN \}/, "and only check-in accounts can be changed here");
   });
 

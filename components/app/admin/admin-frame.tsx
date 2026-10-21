@@ -47,12 +47,12 @@ export async function AdminFrame({ children }: { children: React.ReactNode }) {
       actions={
         <div className="flex items-center gap-3">
           <Link
-            href="/admin/check-in-users"
+            href="/admin/accounts"
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-muted-foreground")}
           >
             <Users aria-hidden />
-            <span className="hidden md:inline">Check-in users</span>
-            <span className="sr-only md:hidden">Check-in users</span>
+            <span className="hidden md:inline">Staff accounts</span>
+            <span className="sr-only md:hidden">Staff accounts</span>
           </Link>
           <SupportNotifications notifications={notifications} />
           <SignOutButton name={user.displayUsername ?? user.username ?? user.name} />

@@ -7,13 +7,14 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-session";
 import {
   CheckInUserError,
+  createAdminUser,
   createCheckInUser,
   resetCheckInUserPassword,
   setCheckInUserDisabled,
 } from "@/lib/check-in-users";
 import { parseNewAccount, parsePassword, type AccountFieldErrors } from "@/lib/validation/account";
 
-// Check-in account management. Server actions are public POST endpoints, so
+// Staff account management: check-in accounts, and creating admins. Server actions are public POST endpoints, so
 // each one checks for a signed-in admin itself before anything else, and
 // validates its input. A check-in account calling these is redirected by
 // requireAdmin(), and Better Auth would refuse it anyway (lib/check-in-users.ts).
@@ -25,7 +26,7 @@ export type CheckInUserActionResult =
 const idSchema = z.string().min(1).max(64);
 const NOT_FOUND = "That check-in account could not be found.";
 const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
-const PAGE = "/admin/check-in-users";
+const PAGE = "/admin/accounts";
 
 async function settle(operation: () => Promise<string>): Promise<CheckInUserActionResult> {
   try {
@@ -56,6 +57,20 @@ export async function createCheckInUserAction(input: { username: string; passwor
   return settle(async () => {
     const user = await createCheckInUser(await headers(), parsed.data);
     return `Check-in account "${user.username}" was created. They can sign in now.`;
+  });
+}
+
+/** Makes another admin. Only an admin can, and Better Auth checks that too. */
+export async function createAdminUserAction(input: { username: string; password: string }): Promise<CheckInUserActionResult> {
+  await requireAdmin();
+
+  const parsed = parseNewAccount({ username: input?.username, password: input?.password });
+  if (!parsed.success) {
+    return { ok: false, message: "Please check the highlighted fields.", fieldErrors: parsed.fieldErrors };
+  }
+  return settle(async () => {
+    const user = await createAdminUser(await headers(), parsed.data);
+    return `Admin "${user.username}" was created. They can sign in now.`;
   });
 }
 
