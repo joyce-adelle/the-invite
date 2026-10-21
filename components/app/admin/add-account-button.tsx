@@ -20,7 +20,7 @@ import {
 import {
   createAdminUserAction,
   createCheckInUserAction,
-} from "@/lib/actions/check-in-users";
+} from "@/lib/actions/staff-accounts";
 import { ROLE, type Role } from "@/lib/roles";
 import {
   parseNewAccount,
@@ -43,7 +43,7 @@ const COPY = {
     button: "Add admin",
     title: "Add an admin",
     description:
-      "They can do everything you can: manage guests, send cards, see help requests, add more admins, and manage check-in users. An admin can't be disabled or removed from the app, so only add someone you trust. Share the password with them yourself; it is never shown again.",
+      "Add an admin who can manage guests, send cards, see help requests, and add or disable staff accounts, including other admins. Share the password with them yourself; it is never shown again.",
   },
 } satisfies Record<
   Role,

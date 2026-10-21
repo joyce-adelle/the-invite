@@ -100,6 +100,7 @@ async function seedAdmin() {
     {
       created: `Created admin "${username}".`,
       "password-changed": `Changed the password of admin "${username}" (their sessions were ended).`,
+      "re-enabled": `Re-enabled admin "${username}", which had been disabled.`,
       unchanged: `Admin "${username}" already exists with that password.`,
     }[result],
   );

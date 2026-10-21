@@ -22,10 +22,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  resetCheckInUserPasswordAction,
-  setCheckInUserDisabledAction,
-  type CheckInUserActionResult,
-} from "@/lib/actions/check-in-users";
+  resetStaffAccountPasswordAction,
+  setStaffAccountDisabledAction,
+  type StaffAccountActionResult,
+} from "@/lib/actions/staff-accounts";
+import { ROLE, type Role } from "@/lib/roles";
 import { parsePassword } from "@/lib/validation/account";
 
 function isRedirectError(error: unknown): boolean {
@@ -35,15 +36,28 @@ function isRedirectError(error: unknown): boolean {
 
 const OFFLINE = "We couldn't reach the server. Check your connection and try again.";
 
-/** Disable or re-enable a check-in account, or give it a new password. */
-export function CheckInUserActions({ user }: { user: { id: string; username: string; disabled: boolean } }) {
+const DISABLE_EFFECT: Record<Role, string> = {
+  [ROLE.CHECK_IN]: "can't sign in or check anyone in",
+  [ROLE.ADMIN]: "can't sign in or use the admin area",
+};
+
+/**
+ * Disable or re-enable a staff account, or give it a new password. The page
+ * only offers this for accounts the server will allow: not the default admin,
+ * and not your own.
+ */
+export function AccountActions({
+  user,
+}: {
+  user: { id: string; username: string; disabled: boolean; role: Role };
+}) {
   const [busy, startTransition] = useTransition();
   const [dialog, setDialog] = useState<"disable" | "password" | null>(null);
 
   function setDisabled(disabled: boolean) {
     startTransition(async () => {
       try {
-        const result = await setCheckInUserDisabledAction(user.id, disabled);
+        const result = await setStaffAccountDisabledAction(user.id, disabled);
         if (result.ok) toast.success(result.message);
         else toast.error(result.message, { duration: 8000 });
       } catch (error) {
@@ -80,7 +94,7 @@ export function CheckInUserActions({ user }: { user: { id: string; username: str
         open={dialog === "disable"}
         onOpenChange={(open) => setDialog(open ? "disable" : null)}
         title={`Disable ${user.username}?`}
-        description="They are signed out everywhere straight away and can't sign in or check anyone in until you enable the account again. Check-ins they already made are kept."
+        description={`They are signed out everywhere straight away and ${DISABLE_EFFECT[user.role]} until you enable the account again. Everything they already did, such as check-ins, is kept.`}
         confirmLabel="Disable account"
         cancelLabel="Keep active"
         onConfirm={() => setDisabled(true)}
@@ -117,9 +131,9 @@ function ResetForm({ userId, onDone }: { userId: string; onDone: () => void }) {
     }
     setError(undefined);
     startTransition(async () => {
-      let result: CheckInUserActionResult;
+      let result: StaffAccountActionResult;
       try {
-        result = await resetCheckInUserPasswordAction(userId, parsed.data);
+        result = await resetStaffAccountPasswordAction(userId, parsed.data);
       } catch (error) {
         if (!isRedirectError(error)) setError(OFFLINE);
         return;

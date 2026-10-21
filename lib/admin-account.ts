@@ -7,12 +7,21 @@ import { randomUUID } from "node:crypto";
 
 // Making an admin account. Used by the seed (prisma/seed.ts), not by the app:
 // there is no sign-up, and admins can only make check-in accounts in the app
-// (lib/check-in-users.ts), so this is the only way an admin comes to exist. It
+// (lib/staff-accounts.ts), so this is how the first admin, the default one, comes to exist. It
 // writes the rows Better Auth reads (a user, plus a credential account holding
 // the password's scrypt hash, made with Better Auth's own hasher), so the
 // account signs in like any other.
 
 export { MIN_PASSWORD_LENGTH };
+
+/**
+ * The default admin's username, from ADMIN_USERNAME, as stored (lowercase), or
+ * null when it isn't set. That admin can't be disabled or changed from the app
+ * (lib/staff-accounts.ts); only the seed manages it.
+ */
+export function defaultAdminUsername(): string | null {
+  return process.env.ADMIN_USERNAME?.trim().toLowerCase() || null;
+}
 
 export type AdminInput = {
   username: string;
@@ -21,7 +30,7 @@ export type AdminInput = {
   email?: string;
 };
 
-export type AdminResult = "created" | "password-changed" | "unchanged";
+export type AdminResult = "created" | "password-changed" | "re-enabled" | "unchanged";
 
 /**
  * Creates the admin, or makes sure the existing one has this password. Safe to
@@ -75,9 +84,15 @@ export async function upsertAdmin(
     throw new Error(`"${username}" is already a check-in account. Choose another ADMIN_USERNAME.`);
   }
 
+  // The default admin can't be re-enabled from the app, so the seed is how it
+  // comes back if it was disabled before ADMIN_USERNAME pointed at it.
+  if (existing.banned) {
+    await db.user.update({ where: { id: existing.id }, data: { banned: false, banReason: null, banExpires: null } });
+  }
+
   const credential = existing.accounts[0];
   if (credential?.password && (await verifyPassword({ hash: credential.password, password: input.password }))) {
-    return "unchanged";
+    return existing.banned ? "re-enabled" : "unchanged";
   }
 
   const hash = await hashPassword(input.password);

@@ -157,12 +157,12 @@ describe("where the token must not go", () => {
   });
 });
 
-describe("check-in accounts, and who may manage them", () => {
-  const actions = read("lib/actions/check-in-users.ts");
+describe("staff accounts, and who may manage them", () => {
+  const actions = read("lib/actions/staff-accounts.ts");
 
   it("makes every account action check for an active admin before anything else", () => {
     const names = [...actions.matchAll(/export async function (\w+Action)\(/g)].map((m) => m[1]);
-    assert.deepEqual(names.sort(), ["createAdminUserAction", "createCheckInUserAction", "resetCheckInUserPasswordAction", "setCheckInUserDisabledAction"]);
+    assert.deepEqual(names.sort(), ["createAdminUserAction", "createCheckInUserAction", "resetStaffAccountPasswordAction", "setStaffAccountDisabledAction"]);
     for (const name of names) {
       const start = actions.indexOf(`function ${name}(`);
       const body = actions.slice(start, actions.indexOf("\nexport ", start + 1) >>> 0 || undefined);
@@ -173,16 +173,23 @@ describe("check-in accounts, and who may manage them", () => {
   });
 
   it("passes the acting admin's own headers to Better Auth, so it checks their role too", () => {
-    for (const call of ["createCheckInUser(await headers()", "createAdminUser(await headers()", "setCheckInUserDisabled(await headers()", "resetCheckInUserPassword(await headers()"]) {
+    for (const call of ["createStaffAccount(await headers()", "setStaffAccountDisabled(await headers()", "resetStaffAccountPassword(await headers()"]) {
       assert.ok(actions.includes(call), call);
     }
-    const lib = read("lib/check-in-users.ts");
+    // The role of a new account is fixed by which action was called, never sent by the browser.
+    assert.match(actions, /createCheckInUserAction[\s\S]*?return create\(ROLE\.CHECK_IN, input\)/);
+    assert.match(actions, /createAdminUserAction[\s\S]*?return create\(ROLE\.ADMIN, input\)/);
+    const lib = read("lib/staff-accounts.ts");
     for (const api of ["createUser", "banUser", "unbanUser", "setUserPassword", "revokeUserSessions"]) {
       assert.match(lib, new RegExp(`auth\\.api\\.${api}\\(\\{\\s*headers`), api);
     }
-    assert.match(lib, /createAccount\(headers, input, ROLE\.CHECK_IN\)/, "check-in accounts are made with that role");
-    assert.match(lib, /createAccount\(headers, input, ROLE\.ADMIN\)/, "and admins with theirs, never a role from the browser");
-    assert.match(lib, /where: \{ id, role: ROLE\.CHECK_IN \}/, "and only check-in accounts can be changed here");
+    // Every change goes through one guard: an active admin, not the default admin, not themselves.
+    assert.equal(lib.match(/await findManageable\(headers, id\)/g)?.length, 2, "both disabling and resetting use it");
+    const guard = lib.slice(lib.indexOf("async function findManageable"));
+    assert.match(guard, /if \(!session \|\| !isAdmin\(session\.user\)\)/);
+    assert.match(guard, /if \(account\.isDefaultAdmin\)/);
+    assert.match(guard, /if \(account\.id === session\.user\.id\)/);
+    assert.match(lib, /defaultAdmin !== null && user\.username === defaultAdmin/, "the default admin is the one ADMIN_USERNAME names");
   });
 
   it("keeps Better Auth's own admin endpoints unreachable over HTTP", () => {

@@ -15,21 +15,30 @@ import {
 import { upsertAdmin } from "@/lib/admin-account";
 import { auth } from "@/lib/auth";
 import {
-  CheckInUserError,
-  createAdminUser,
-  createCheckInUser,
-  listAdminUsers,
-  listCheckInUsers,
-  resetCheckInUserPassword,
-  setCheckInUserDisabled,
-  type CheckInUserErrorCode,
-} from "@/lib/check-in-users";
+  createStaffAccount,
+  listStaffAccounts,
+  resetStaffAccountPassword as resetCheckInUserPassword,
+  setStaffAccountDisabled as setCheckInUserDisabled,
+  StaffAccountError as CheckInUserError,
+  type StaffAccountErrorCode as CheckInUserErrorCode,
+} from "@/lib/staff-accounts";
 import { checkInGuest } from "@/lib/data/check-in";
 import { createGuest } from "@/lib/data/guests";
 import { approveInvitation } from "@/lib/invitations";
 import { prisma } from "@/lib/prisma";
 import { canCheckIn, homeFor, isAdmin, ROLE } from "@/lib/roles";
-import { parseNewAccount, parsePassword } from "@/lib/validation/account";
+import {
+  parseNewAccount,
+  parsePassword,
+  type NewAccountInput,
+} from "@/lib/validation/account";
+
+const createCheckInUser = (headers: Headers, input: NewAccountInput) =>
+  createStaffAccount(headers, input, ROLE.CHECK_IN);
+const createAdminUser = (headers: Headers, input: NewAccountInput) =>
+  createStaffAccount(headers, input, ROLE.ADMIN);
+const listCheckInUsers = () => listStaffAccounts(ROLE.CHECK_IN);
+const listAdminUsers = () => listStaffAccounts(ROLE.ADMIN);
 
 // Check-in accounts end to end against the real database and Better Auth:
 // made by an admin, signing in by username, what each role may do, disabling,
@@ -116,6 +125,8 @@ describe(
       });
     });
     beforeEach(async () => {
+      // The seed's admin is the default one, as ADMIN_USERNAME names it in production.
+      process.env.ADMIN_USERNAME = ADMIN.username;
       mock.method(console, "error", () => {});
       mock.method(console, "info", () => {});
       await upsertAdmin(prisma, ADMIN);
@@ -142,6 +153,8 @@ describe(
           "createdAt",
           "disabled",
           "id",
+          "isDefaultAdmin",
+          "role",
           "updatedAt",
           "username",
         ]);
@@ -193,7 +206,9 @@ describe(
         );
         for (const user of listed)
           assert.ok(
-            !("password" in user) && !("role" in user) && !("email" in user),
+            !("password" in user) &&
+              !("email" in user) &&
+              user.role === ROLE.CHECK_IN,
           );
         assert.ok(
           !listed.some((u) => u.username === ADMIN.username),
@@ -444,28 +459,84 @@ describe(
         assert.ok((await signIn("tcu_back", PASSWORD)).ok);
       });
 
-      it("can't reach an admin account through the check-in tools", async () => {
+      it("never lets anyone change the default admin from ADMIN_USERNAME, nor an account that doesn't exist", async () => {
         const adminId = (
           await prisma.user.findUniqueOrThrow({
             where: { username: ADMIN.username },
           })
         ).id;
+        // Another admin tries: refused, whoever asks.
+        await createAdminUser(admin, {
+          username: "tcu_other_boss",
+          password: PASSWORD,
+        });
+        const other = await signedIn("tcu_other_boss", PASSWORD);
         await rejectsWith(
-          "NOT_FOUND",
-          setCheckInUserDisabled(admin, adminId, true),
+          "PROTECTED",
+          setCheckInUserDisabled(other, adminId, true),
         );
         await rejectsWith(
-          "NOT_FOUND",
-          resetCheckInUserPassword(admin, adminId, "a new password"),
+          "PROTECTED",
+          resetCheckInUserPassword(other, adminId, "a new password"),
         );
         await rejectsWith(
           "NOT_FOUND",
           setCheckInUserDisabled(admin, "no-such-user", true),
         );
+        const row = await prisma.user.findUniqueOrThrow({
+          where: { id: adminId },
+        });
+        assert.equal(row.banned, false);
+        assert.ok(
+          (await signIn(ADMIN.username, ADMIN.password)).ok,
+          "the default admin's password is unchanged",
+        );
+        assert.equal(
+          (await listAdminUsers()).find((a) => a.id === adminId)
+            ?.isDefaultAdmin,
+          true,
+        );
+      });
+
+      it("never lets an admin disable or reset their own account", async () => {
+        const made = await createAdminUser(admin, {
+          username: "tcu_self",
+          password: PASSWORD,
+        });
+        const self = await signedIn("tcu_self", PASSWORD);
+        await rejectsWith(
+          "PROTECTED",
+          setCheckInUserDisabled(self, made.id, true),
+        );
+        await rejectsWith(
+          "PROTECTED",
+          resetCheckInUserPassword(self, made.id, "a new password"),
+        );
+        assert.ok(await sessionOf(self), "still signed in");
+      });
+
+      it("follows ADMIN_USERNAME: with it unset, the seed's admin is an ordinary admin", async () => {
+        delete process.env.ADMIN_USERNAME;
+        const adminId = (
+          await prisma.user.findUniqueOrThrow({
+            where: { username: ADMIN.username },
+          })
+        ).id;
+        assert.equal(
+          (await listAdminUsers()).find((a) => a.id === adminId)
+            ?.isDefaultAdmin,
+          false,
+        );
+        await createAdminUser(admin, {
+          username: "tcu_other_boss2",
+          password: PASSWORD,
+        });
+        const other = await signedIn("tcu_other_boss2", PASSWORD);
+        await setCheckInUserDisabled(other, adminId, true);
         assert.equal(
           (await prisma.user.findUniqueOrThrow({ where: { id: adminId } }))
             .banned,
-          false,
+          true,
         );
       });
     });
@@ -493,7 +564,10 @@ describe(
           username: "tcu_short",
           password: PASSWORD,
         });
-        await rejectsWith("INVALID", resetCheckInUserPassword(admin, made.id, "short"));
+        await rejectsWith(
+          "INVALID",
+          resetCheckInUserPassword(admin, made.id, "short"),
+        );
         assert.ok(
           (await signIn("tcu_short", PASSWORD)).ok,
           "the old password still works",
@@ -502,74 +576,262 @@ describe(
     });
 
     describe("an admin making another admin", () => {
-    it("creates an admin who signs in by username and has every admin right", async () => {
-      const made = await createAdminUser(admin, { username: "TCU_Boss2", password: PASSWORD });
-      assert.deepEqual(Object.keys(made).sort(), ["createdAt", "id", "username"]);
-      assert.equal(made.username, "TCU_Boss2");
+      it("creates an admin who signs in by username and has every admin right", async () => {
+        const made = await createAdminUser(admin, {
+          username: "TCU_Boss2",
+          password: PASSWORD,
+        });
+        assert.deepEqual(Object.keys(made).sort(), [
+          "createdAt",
+          "disabled",
+          "id",
+          "isDefaultAdmin",
+          "role",
+          "updatedAt",
+          "username",
+        ]);
+        assert.equal(made.role, ROLE.ADMIN);
+        assert.equal(made.isDefaultAdmin, false);
+        assert.equal(made.username, "TCU_Boss2");
 
-      const row = await prisma.user.findUniqueOrThrow({ where: { id: made.id }, include: { accounts: true } });
-      assert.equal(row.role, ROLE.ADMIN);
-      assert.equal(row.username, "tcu_boss2");
-      assert.equal(row.banned, false);
-      assert.ok(row.accounts[0].password && !row.accounts[0].password.includes(PASSWORD), "only a hash is stored");
+        const row = await prisma.user.findUniqueOrThrow({
+          where: { id: made.id },
+          include: { accounts: true },
+        });
+        assert.equal(row.role, ROLE.ADMIN);
+        assert.equal(row.username, "tcu_boss2");
+        assert.equal(row.banned, false);
+        assert.ok(
+          row.accounts[0].password &&
+            !row.accounts[0].password.includes(PASSWORD),
+          "only a hash is stored",
+        );
 
-      const boss2 = await signedIn("tcu_boss2", PASSWORD);
-      const session = (await sessionOf(boss2))!;
-      assert.equal(isAdmin(session.user), true);
-      assert.equal(homeFor(session.user), "/admin");
-      // The new admin can make accounts of its own, admins included.
-      await createCheckInUser(boss2, { username: "tcu_by_boss2", password: PASSWORD });
-      await createAdminUser(boss2, { username: "tcu_boss3", password: PASSWORD });
-      assert.equal((await prisma.user.findUniqueOrThrow({ where: { username: "tcu_boss3" } })).role, ROLE.ADMIN);
+        const boss2 = await signedIn("tcu_boss2", PASSWORD);
+        const session = (await sessionOf(boss2))!;
+        assert.equal(isAdmin(session.user), true);
+        assert.equal(homeFor(session.user), "/admin");
+        // The new admin can make accounts of its own, admins included.
+        await createCheckInUser(boss2, {
+          username: "tcu_by_boss2",
+          password: PASSWORD,
+        });
+        await createAdminUser(boss2, {
+          username: "tcu_boss3",
+          password: PASSWORD,
+        });
+        assert.equal(
+          (
+            await prisma.user.findUniqueOrThrow({
+              where: { username: "tcu_boss3" },
+            })
+          ).role,
+          ROLE.ADMIN,
+        );
+      });
+
+      it("lists admins, oldest first, and never as check-in accounts", async () => {
+        await createAdminUser(admin, {
+          username: "tcu_listed_admin",
+          password: PASSWORD,
+        });
+        const admins = (await listAdminUsers()).map((a) => a.username);
+        assert.ok(
+          admins.indexOf(ADMIN.username) < admins.indexOf("tcu_listed_admin"),
+        );
+        assert.ok(
+          !(await listCheckInUsers()).some(
+            (u) => u.username === "tcu_listed_admin",
+          ),
+        );
+        for (const a of await listAdminUsers())
+          assert.ok(!("password" in a) && !("email" in a));
+      });
+
+      it("refuses a username any account already has, in any case", async () => {
+        await createCheckInUser(admin, {
+          username: "tcu_shared",
+          password: PASSWORD,
+        });
+        await rejectsWith(
+          "USERNAME_TAKEN",
+          createAdminUser(admin, {
+            username: "TCU_SHARED",
+            password: PASSWORD,
+          }),
+        );
+        await rejectsWith(
+          "USERNAME_TAKEN",
+          createAdminUser(admin, {
+            username: ADMIN.username,
+            password: PASSWORD,
+          }),
+        );
+        assert.equal(
+          (
+            await prisma.user.findUniqueOrThrow({
+              where: { username: "tcu_shared" },
+            })
+          ).role,
+          ROLE.CHECK_IN,
+          "not turned into an admin",
+        );
+      });
+
+      it("can't be done by a check-in account: Better Auth refuses it", async () => {
+        await createCheckInUser(admin, {
+          username: "tcu_door_x",
+          password: PASSWORD,
+        });
+        const door = await signedIn("tcu_door_x", PASSWORD);
+        await rejectsWith(
+          "FORBIDDEN",
+          createAdminUser(door, {
+            username: "tcu_wannabe",
+            password: PASSWORD,
+          }),
+        );
+        assert.equal(
+          await prisma.user.count({ where: { username: "tcu_wannabe" } }),
+          0,
+        );
+      });
+
+      it("can't be done by a disabled admin's old session", async () => {
+        const made = await createAdminUser(admin, {
+          username: "tcu_gone",
+          password: PASSWORD,
+        });
+        const gone = await signedIn("tcu_gone", PASSWORD);
+        await prisma.user.update({
+          where: { id: made.id },
+          data: { banned: true },
+        });
+        await prisma.session.deleteMany({ where: { userId: made.id } });
+        await rejectsWith(
+          "FORBIDDEN",
+          createAdminUser(gone, { username: "tcu_after", password: PASSWORD }),
+        );
+        assert.equal(
+          await prisma.user.count({ where: { username: "tcu_after" } }),
+          0,
+        );
+      });
+
+      it("lets an admin disable, re-enable and reset another admin, who loses admin rights while disabled", async () => {
+        const made = await createAdminUser(admin, {
+          username: "tcu_managed",
+          password: PASSWORD,
+        });
+        const laptop = await signedIn("tcu_managed", PASSWORD);
+        assert.ok(isAdmin((await sessionOf(laptop))!.user));
+
+        const disabled = await setCheckInUserDisabled(admin, made.id, true);
+        assert.equal(disabled.disabled, true);
+        assert.equal(await sessionOf(laptop), null, "signed out everywhere");
+        const attempt = await signIn("tcu_managed", PASSWORD);
+        assert.ok(!attempt.ok && attempt.code === "BANNED_USER");
+        assert.equal(
+          isAdmin({ role: ROLE.ADMIN, banned: true }),
+          false,
+          "and no admin rights even with a session",
+        );
+
+        await setCheckInUserDisabled(admin, made.id, false);
+        assert.ok(
+          (await signIn("tcu_managed", PASSWORD)).ok,
+          "back in with the same password",
+        );
+
+        const phone = await signedIn("tcu_managed", PASSWORD);
+        await resetCheckInUserPassword(
+          admin,
+          made.id,
+          "a fresh admin password",
+        );
+        assert.equal(await sessionOf(phone), null);
+        assert.equal((await signIn("tcu_managed", PASSWORD)).ok, false);
+        assert.ok((await signIn("tcu_managed", "a fresh admin password")).ok);
+        assert.equal(
+          (await prisma.user.findUniqueOrThrow({ where: { id: made.id } }))
+            .role,
+          ROLE.ADMIN,
+          "still an admin",
+        );
+      });
+
+      it("can't be done to an admin by a check-in account", async () => {
+        const made = await createAdminUser(admin, {
+          username: "tcu_target",
+          password: PASSWORD,
+        });
+        await createCheckInUser(admin, {
+          username: "tcu_door_y",
+          password: PASSWORD,
+        });
+        const door = await signedIn("tcu_door_y", PASSWORD);
+        await rejectsWith(
+          "FORBIDDEN",
+          setCheckInUserDisabled(door, made.id, true),
+        );
+        await rejectsWith(
+          "FORBIDDEN",
+          resetCheckInUserPassword(door, made.id, "a new password"),
+        );
+        assert.equal(
+          (await prisma.user.findUniqueOrThrow({ where: { id: made.id } }))
+            .banned,
+          false,
+        );
+      });
+
+      it("validates username and password the same way as for a check-in account", async () => {
+        await rejectsWith(
+          "INVALID",
+          createAdminUser(admin, {
+            username: "tcu_short_pw",
+            password: "short",
+          }),
+        );
+        await rejectsWith(
+          "INVALID",
+          createCheckInUser(admin, {
+            username: "tcu_short_pw",
+            password: "short",
+          }),
+        );
+        await rejectsWith(
+          "INVALID",
+          createAdminUser(admin, {
+            username: "no spaces allowed",
+            password: PASSWORD,
+          }),
+        );
+        assert.equal(
+          await prisma.user.count({ where: { username: "tcu_short_pw" } }),
+          0,
+        );
+      });
     });
 
-    it("lists admins, oldest first, and never as check-in accounts", async () => {
-      await createAdminUser(admin, { username: "tcu_listed_admin", password: PASSWORD });
-      const admins = (await listAdminUsers()).map((a) => a.username);
-      assert.ok(admins.indexOf(ADMIN.username) < admins.indexOf("tcu_listed_admin"));
-      assert.ok(!(await listCheckInUsers()).some((u) => u.username === "tcu_listed_admin"));
-      for (const a of await listAdminUsers()) assert.ok(!("password" in a) && !("email" in a));
+    describe("the seed and the default admin", () => {
+      it("re-enables the default admin when run again, since the app can't", async () => {
+        await prisma.user.update({
+          where: { username: ADMIN.username },
+          data: { banned: true, banReason: "x" },
+        });
+        assert.equal(await upsertAdmin(prisma, ADMIN), "re-enabled");
+        const row = await prisma.user.findUniqueOrThrow({
+          where: { username: ADMIN.username },
+        });
+        assert.equal(row.banned, false);
+        assert.equal(row.banReason, null);
+        assert.ok((await signIn(ADMIN.username, ADMIN.password)).ok);
+        assert.equal(await upsertAdmin(prisma, ADMIN), "unchanged");
+      });
     });
 
-    it("refuses a username any account already has, in any case", async () => {
-      await createCheckInUser(admin, { username: "tcu_shared", password: PASSWORD });
-      await rejectsWith("USERNAME_TAKEN", createAdminUser(admin, { username: "TCU_SHARED", password: PASSWORD }));
-      await rejectsWith("USERNAME_TAKEN", createAdminUser(admin, { username: ADMIN.username, password: PASSWORD }));
-      assert.equal((await prisma.user.findUniqueOrThrow({ where: { username: "tcu_shared" } })).role, ROLE.CHECK_IN, "not turned into an admin");
-    });
-
-    it("can't be done by a check-in account: Better Auth refuses it", async () => {
-      await createCheckInUser(admin, { username: "tcu_door_x", password: PASSWORD });
-      const door = await signedIn("tcu_door_x", PASSWORD);
-      await rejectsWith("FORBIDDEN", createAdminUser(door, { username: "tcu_wannabe", password: PASSWORD }));
-      assert.equal(await prisma.user.count({ where: { username: "tcu_wannabe" } }), 0);
-    });
-
-    it("can't be done by a disabled admin's old session", async () => {
-      const made = await createAdminUser(admin, { username: "tcu_gone", password: PASSWORD });
-      const gone = await signedIn("tcu_gone", PASSWORD);
-      await prisma.user.update({ where: { id: made.id }, data: { banned: true } });
-      await prisma.session.deleteMany({ where: { userId: made.id } });
-      await rejectsWith("FORBIDDEN", createAdminUser(gone, { username: "tcu_after", password: PASSWORD }));
-      assert.equal(await prisma.user.count({ where: { username: "tcu_after" } }), 0);
-    });
-
-    it("leaves a new admin out of reach of the check-in tools: it can't be disabled or reset from the app", async () => {
-      const made = await createAdminUser(admin, { username: "tcu_safe", password: PASSWORD });
-      await rejectsWith("NOT_FOUND", setCheckInUserDisabled(admin, made.id, true));
-      await rejectsWith("NOT_FOUND", resetCheckInUserPassword(admin, made.id, "another password"));
-      assert.ok((await signIn("tcu_safe", PASSWORD)).ok);
-    });
-
-    it("validates username and password the same way as for a check-in account", async () => {
-      await rejectsWith("INVALID", createAdminUser(admin, { username: "tcu_short_pw", password: "short" }));
-      await rejectsWith("INVALID", createCheckInUser(admin, { username: "tcu_short_pw", password: "short" }));
-      await rejectsWith("INVALID", createAdminUser(admin, { username: "no spaces allowed", password: PASSWORD }));
-      assert.equal(await prisma.user.count({ where: { username: "tcu_short_pw" } }), 0);
-    });
-  });
-
-  describe("admins", () => {
+    describe("admins", () => {
       it("are unchanged: the seed's admin is an admin, signs in and keeps every right", async () => {
         const session = (await sessionOf(admin))!;
         assert.equal(session.user.role, ROLE.ADMIN);
