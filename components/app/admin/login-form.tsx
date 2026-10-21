@@ -8,9 +8,7 @@ import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { useState } from "react";
 
-// Deliberately the same wording for a wrong password and an address that
-// isn't an admin, so the form doesn't reveal who is on the list.
-const INVALID_CREDENTIALS = "Incorrect email or password.";
+const INVALID_CREDENTIALS = "Incorrect username or password.";
 const TOO_MANY_ATTEMPTS =
   "Too many attempts. Please wait a minute and try again.";
 const GENERIC_ERROR = "We couldn't sign you in. Please try again.";
@@ -24,10 +22,10 @@ export function LoginForm({ next }: { next?: string }) {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const email = String(form.get("email") ?? "").trim();
+    const username = String(form.get("username") ?? "").trim();
     const password = String(form.get("password") ?? "");
 
-    if (!email || !password) {
+    if (!username || !password) {
       setError(INVALID_CREDENTIALS);
       return;
     }
@@ -35,8 +33,8 @@ export function LoginForm({ next }: { next?: string }) {
     setPending(true);
     setError(undefined);
     try {
-      const { error } = await authClient.signIn.email({
-        email,
+      const { error } = await authClient.signIn.username({
+        username,
         password,
         callbackURL: next ?? "/admin",
       });
@@ -70,15 +68,17 @@ export function LoginForm({ next }: { next?: string }) {
       )}
 
       <Field
-        id="email"
-        label="Email address"
+        id="username"
+        label="Username"
         input={
           <Input
-            id="email"
-            name="email"
-            type="email"
+            id="username"
+            name="username"
+            type="text"
             autoComplete="username"
-            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             autoFocus
             required
             disabled={pending}

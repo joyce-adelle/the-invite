@@ -7,7 +7,7 @@ import { Loader2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 
-export function SignOutButton({ email }: { email: string }) {
+export function SignOutButton({ name }: { name: string }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
@@ -23,7 +23,7 @@ export function SignOutButton({ email }: { email: string }) {
 
   return (
     <div className="flex items-center gap-3">
-      <span className="hidden text-sm text-muted-foreground sm:inline">{email}</span>
+      <span className="hidden text-sm text-muted-foreground sm:inline">{name}</span>
       <Button variant="outline" size="sm" onClick={handleSignOut} disabled={pending}>
         {pending ? <Loader2 className="animate-spin" aria-hidden /> : <LogOut aria-hidden />}
         Sign out

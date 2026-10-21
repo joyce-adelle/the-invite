@@ -42,7 +42,7 @@ export async function AdminFrame({ children }: { children: React.ReactNode }) {
       actions={
         <div className="flex items-center gap-3">
           <SupportNotifications notifications={notifications} />
-          <SignOutButton email={user.email} />
+          <SignOutButton name={user.displayUsername ?? user.username ?? user.name} />
         </div>
       }
     >

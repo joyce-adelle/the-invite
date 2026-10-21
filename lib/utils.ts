@@ -4,17 +4,6 @@ import { Attendance } from "@/types/check-in";
 
 export { cn } from "cn";
 
-/** The emails in ADMIN_EMAILS (comma-separated), normalized. */
-export function getAdminEmails(): string[] {
-  return (process.env.ADMIN_EMAILS ?? "").split(",").map(normalizeEmail).filter(Boolean);
-}
-
-/** Whether the email is in ADMIN_EMAILS. */
-export function isAdminEmail(email: string | null | undefined): boolean {
-  if (!email) return false;
-  return getAdminEmails().includes(normalizeEmail(email));
-}
-
 /** The form every email is stored and compared in. */
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();

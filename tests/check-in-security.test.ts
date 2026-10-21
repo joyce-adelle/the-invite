@@ -90,7 +90,7 @@ describe("who can let a guest in", () => {
       action,
       /export async function confirmCheckInAction\(token: string\)/,
     );
-    assert.match(action, /checkInGuest\(token, session\.user\.email\)/);
+    assert.match(action, /checkInGuest\(token, session\.user\.id\)/);
     // No guest id, admin, status or time is accepted from the request.
     assert.doesNotMatch(action, /formData|adminEmail|checkedIn(At|By)\s*[:=]/);
   });
@@ -98,7 +98,7 @@ describe("who can let a guest in", () => {
   it("makes the decision in one conditional update that needs an approved guest and both fields empty", () => {
     assert.match(
       data,
-      /updateMany\(\{\s*where: \{ checkInToken: token, status: GuestStatus\.APPROVED, checkedInAt: null, checkedInBy: null \},\s*data: \{ checkedInAt: new Date\(\), checkedInBy: by \}/,
+      /updateMany\(\{\s*where: \{ checkInToken: token, status: GuestStatus\.APPROVED, checkedInAt: null, checkedInBy: null \},\s*data: \{ checkedInAt: new Date\(\), checkedInBy: adminId \}/,
     );
     // Both fields are set in that single statement, and nowhere else.
     assert.equal(data.match(/checkedInAt: new Date\(\)/g)?.length, 1);

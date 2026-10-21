@@ -20,7 +20,7 @@ export async function confirmCheckInAction(token: string): Promise<CheckInAction
   if (!isCheckInToken(token)) return { outcome: "not-found" };
 
   try {
-    const result = await checkInGuest(token, session.user.email);
+    const result = await checkInGuest(token, session.user.id);
     // The dashboard's attendance numbers and list changed.
     if (result.outcome === "checked-in") revalidatePath("/admin");
     return result;

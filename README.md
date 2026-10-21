@@ -4,7 +4,7 @@ A lightweight event invitation app. Guests request an invitation from the host w
 
 - **Next.js 16** (App Router, Cache Components) · **React 19** · **Tailwind CSS v4**
 - **PostgreSQL** via **Prisma 7**. Local Postgres runs in Docker; production is any hosted Postgres set through `DATABASE_URL`.
-- **Better Auth** admin sign-in: stateless cookie sessions, an email allow-list (`ADMIN_EMAILS`) and one shared password stored as a hash (`ADMIN_PASSWORD_HASH`, create it with `npm run auth:hash-password`)
+- **Better Auth** admin sign-in: username and password, with users, sessions and password hashes in Postgres (the `username` plugin and Prisma adapter). Every user is an admin and there is no sign-up; the first admin is made by the seed from `ADMIN_USERNAME` / `ADMIN_PASSWORD`
 - **Resend** for access-card emails
 - **pdf-lib** overlays guest details onto the card template
 
@@ -17,7 +17,7 @@ npm install                   # also generates the Prisma client
 cp .env.example .env.local    # then fill in the values
 docker compose up -d          # local Postgres on localhost:5433
 npm run db:migrate            # apply migrations (prisma migrate dev)
-npm run db:seed               # create the hosts and their tables
+npm run db:seed               # create the hosts and tables, and the admin from ADMIN_USERNAME / ADMIN_PASSWORD
 npm run dev
 ```
 
@@ -28,6 +28,7 @@ All environment variables are server-only. See [.env.example](.env.example) for 
 - `DATABASE_URL` is the only database setting. The Prisma CLI reads it from `.env.local` just like Next.js does ([prisma.config.ts](prisma.config.ts)).
 - Local data persists in the `pgdata` Docker volume across restarts. `docker compose down -v` deletes it.
 - **Schema changes:** edit [prisma/schema.prisma](prisma/schema.prisma), then run `npm run db:migrate -- --name <change>` and commit the new folder in `prisma/migrations/`.
+- **Admins** are rows in the `users` table, made only by the seed ([lib/admin-account.ts](lib/admin-account.ts)). To add one, or to change a password, run `npm run db:seed` with the new `ADMIN_USERNAME` / `ADMIN_PASSWORD`; changing a password signs that admin out everywhere. Sessions are stored in the database so signing out or deleting a user ends them at once.
 - **Hosts and tables** come from [prisma/seed.ts](prisma/seed.ts); there's no UI for them. Edit the list and re-run `npm run db:seed`: it updates in place and never deletes, because guests reference hosts and tables. Don't change a host's `id` once guests exist.
 - **Production:** run `npm run db:deploy` (`prisma migrate deploy`) against the hosted database before or during deploy, and `npm run db:seed` once. If your provider gives you a pooled connection string (e.g. Supabase's transaction pooler), run migrations with its direct or session connection string.
 - Some constraints live only in the migration SQL because Prisma's schema language can't express them: normalised emails, approved guests must have a table, and capacities must be positive.
@@ -100,7 +101,7 @@ Every approved guest's card carries a QR code in the bottom-right corner of page
 - **Same code everywhere:** the PDF and the email build their QR picture from one address (`checkInUrl` in [lib/check-in/check-in.ts](lib/check-in/check-in.ts)), and the card is regenerated from current details every time, so a new table shows while the code stays the same. Where the code sits on the card is `accessCard.qr` in [config/event.ts](config/event.ts).
 - **The page** ([app/check-in/[token]](app/check-in/[token]/page.tsx)) is for signed-in admins only. Anyone else sees a generic "restricted" page that reveals nothing, whether or not the code is real, with a link to sign in that brings them back afterwards. An admin sees the guest's name, table, invitation status and check-in status, and presses **Confirm check-in**; opening the page never checks anyone in.
 - **Check-in is decided by the server, once.** `checkInGuest` ([lib/data/check-in.ts](lib/data/check-in.ts)) is a single conditional update that only matches an approved guest whose check-in fields are both still empty, and fills both in the same statement, so two admins confirming at once can't both succeed: the second is told the guest already checked in, with the first admin's details, which are never overwritten. The database also refuses a check-in with only one of the two fields. Pending, rejected and cancelled invitations are refused, with the reason; a cancelled guest's old QR code no longer works.
-- **Who checked in:** `checkedInBy` is the admin's **email** from their verified session. Admin sign-in is stateless (see [lib/auth.ts](lib/auth.ts)), so Better Auth's user ids change on every restart; the address in `ADMIN_EMAILS` is the stable identity of an individual admin.
+- **Who checked in:** `checkedInBy` is a foreign key to the admin's user id from their verified session, shown by username. An admin who has checked guests in can't be deleted, so the record never dangles.
 - **Dashboard:** attendance cards (approved, checked in, not yet, percentage) are counted from the database on each load, and the Approved tab has a check-in filter and column.
 
 ## Tests

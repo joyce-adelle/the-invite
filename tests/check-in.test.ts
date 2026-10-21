@@ -58,6 +58,24 @@ const isLocal =
   /^postgres(ql)?:\/\/[^@/]*@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(url);
 
 const HOST_ID = "test-checkin";
+
+// Admins are real user rows, because a check-in points at one. Each has a
+// username shown on the page ("TestAdmin_a") and an id stored on the guest.
+const ADMIN_KEYS = ["a", "b", "one", "first", "second", ...Array.from({ length: 16 }, (_, i) => String(i))];
+const adminId = (key: string | number) => `test-checkin-admin-${key}`;
+const adminShown = (key: string | number) => `TestAdmin_${key}`;
+const shownById = (id: string | null) => (id ? adminShown(id.replace("test-checkin-admin-", "")) : null);
+const makeAdmins = () =>
+  prisma.user.createMany({
+    data: ADMIN_KEYS.map((key) => ({
+      id: adminId(key),
+      name: adminShown(key),
+      email: `${key}@check-in-test.invalid`,
+      username: `testadmin_${key}`,
+      displayUsername: adminShown(key),
+    })),
+  });
+const removeAdmins = () => prisma.user.deleteMany({ where: { id: { startsWith: "test-checkin-admin-" } } });
 const ok = async () => ({ id: "test-email-id" });
 
 let counter = 0;
@@ -102,12 +120,14 @@ describe(
   () => {
     const removeFixtures = async () => {
       await prisma.guest.deleteMany({ where: { invitedBy: HOST_ID } });
+      await removeAdmins(); // after the guests: a check-in holds its admin in place
       await prisma.table.deleteMany({ where: { hostId: HOST_ID } });
       await prisma.host.deleteMany({ where: { id: HOST_ID } });
     };
 
     before(async () => {
       await removeFixtures();
+      await makeAdmins();
       await prisma.host.create({
         data: {
           id: HOST_ID,
@@ -296,15 +316,15 @@ describe(
         const before = Date.now();
         const result = await checkInGuest(
           guest.checkInToken!,
-          "Admin.One@Example.com ",
+          adminId("one"),
         );
         const after = Date.now();
 
         assert.equal(result.outcome, "checked-in");
         assert.ok("guest" in result);
-        assert.equal(result.guest.checkedInBy, "admin.one@example.com");
+        assert.equal(result.guest.checkedInBy, adminShown("one"), "shown by username");
         const stored = await fresh(guest.id);
-        assert.equal(stored.checkedInBy, "admin.one@example.com");
+        assert.equal(stored.checkedInBy, adminId("one"), "stored as the user id");
         assert.ok(
           stored.checkedInAt &&
           stored.checkedInAt.getTime() >= before - 1000 &&
@@ -318,7 +338,7 @@ describe(
 
       it("shows the admin the guest's name, table, host and status, and nothing private", async () => {
         const guest = await approved();
-        const result = await checkInGuest(guest.checkInToken!, "a@example.com");
+        const result = await checkInGuest(guest.checkInToken!, adminId("a"));
         assert.ok("guest" in result);
         assert.deepEqual(Object.keys(result.guest).sort(), [
           "checkedInAt",
@@ -355,25 +375,25 @@ describe(
         const guest = await approved();
         const first = await checkInGuest(
           guest.checkInToken!,
-          "first@example.com",
+          adminId("first"),
         );
         const stored = await fresh(guest.id);
 
         const second = await checkInGuest(
           guest.checkInToken!,
-          "second@example.com",
+          adminId("second"),
         );
         assert.equal(first.outcome, "checked-in");
         assert.equal(second.outcome, "already-checked-in");
         assert.ok("guest" in second);
-        assert.equal(second.guest.checkedInBy, "first@example.com");
+        assert.equal(second.guest.checkedInBy, adminShown("first"));
         assert.equal(
           second.guest.checkedInAt?.getTime(),
           stored.checkedInAt?.getTime(),
         );
 
         const after = await fresh(guest.id);
-        assert.equal(after.checkedInBy, "first@example.com");
+        assert.equal(after.checkedInBy, adminId("first"));
         assert.equal(
           after.checkedInAt?.getTime(),
           stored.checkedInAt?.getTime(),
@@ -384,7 +404,7 @@ describe(
         const guest = await approved();
         const admins = Array.from(
           { length: 16 },
-          (_, i) => `admin${i}@example.com`,
+          (_, i) => adminId(i),
         );
         const results = await Promise.all(
           admins.map((admin) => checkInGuest(guest.checkInToken!, admin)),
@@ -401,14 +421,14 @@ describe(
         assert.ok("guest" in winner);
         const stored = await fresh(guest.id);
         assert.equal(
-          stored.checkedInBy,
+          shownById(stored.checkedInBy),
           winner.guest.checkedInBy,
           "the stored admin is the one told they succeeded",
         );
         // Everyone who lost is shown the winner's details.
         for (const result of results) {
           assert.ok("guest" in result);
-          assert.equal(result.guest.checkedInBy, stored.checkedInBy);
+          assert.equal(result.guest.checkedInBy, shownById(stored.checkedInBy));
           assert.equal(
             result.guest.checkedInAt?.getTime(),
             stored.checkedInAt?.getTime(),
@@ -432,7 +452,7 @@ describe(
         }
         for (const guest of [waiting, rejected, cancelled]) {
           const token = await tokenOf(guest.id);
-          const result = await checkInGuest(token, "a@example.com");
+          const result = await checkInGuest(token, adminId("a"));
           assert.equal(result.outcome, "not-eligible", guest.status);
           assert.ok("guest" in result && result.guest.status === guest.status);
           const stored = await fresh(guest.id);
@@ -454,7 +474,7 @@ describe(
           "CANCELLED",
         );
         assert.equal(
-          (await checkInGuest(guest.checkInToken!, "a@example.com")).outcome,
+          (await checkInGuest(guest.checkInToken!, adminId("a"))).outcome,
           "not-eligible",
         );
         assert.equal((await fresh(guest.id)).checkedInAt, null);
@@ -465,22 +485,22 @@ describe(
         await cancelGuest(guest.id);
         await approveInvitation(guest.id, ok);
         assert.equal(
-          (await checkInGuest(guest.checkInToken!, "a@example.com")).outcome,
+          (await checkInGuest(guest.checkInToken!, adminId("a"))).outcome,
           "checked-in",
         );
       });
 
       it("keeps the record of a guest who checked in and was cancelled afterwards, and still refuses them", async () => {
         const guest = await approved();
-        await checkInGuest(guest.checkInToken!, "a@example.com");
+        await checkInGuest(guest.checkInToken!, adminId("a"));
         await cancelGuest(guest.id);
 
-        const result = await checkInGuest(guest.checkInToken!, "b@example.com");
+        const result = await checkInGuest(guest.checkInToken!, adminId("b"));
         assert.equal(result.outcome, "not-eligible");
         assert.ok("guest" in result);
         assert.equal(
           result.guest.checkedInBy,
-          "a@example.com",
+          adminShown("a"),
           "the earlier check-in is shown, not overwritten",
         );
       });
@@ -495,7 +515,7 @@ describe(
           "A".repeat(500),
         ]) {
           assert.deepEqual(
-            await checkInGuest(token, "a@example.com"),
+            await checkInGuest(token, adminId("a")),
             { outcome: "not-found" },
             token,
           );
@@ -509,6 +529,23 @@ describe(
         );
       });
 
+      it("keeps the record of who let a guest in: an admin with check-ins can't be deleted", async () => {
+        const guest = await approved();
+        await checkInGuest(guest.checkInToken!, adminId("a"));
+
+        await assert.rejects(
+          prisma.user.delete({ where: { id: adminId("a") } }),
+          (error: { code?: string }) => error.code === "P2003",
+          "refused while a check-in points at them",
+        );
+        assert.equal((await fresh(guest.id)).checkedInBy, adminId("a"));
+        // An admin who has checked nobody in can still be removed.
+        await prisma.user.delete({ where: { id: adminId("b") } });
+        await prisma.user.create({
+          data: { id: adminId("b"), name: adminShown("b"), email: "b@check-in-test.invalid", username: "testadmin_b", displayUsername: adminShown("b") },
+        });
+      });
+
       it("won't record a check-in with no admin named", async () => {
         const guest = await approved();
         await assert.rejects(checkInGuest(guest.checkInToken!, "   "));
@@ -519,7 +556,8 @@ describe(
         const guest = await approved();
         const cases: [string, Record<string, unknown>][] = [
           ["time without an admin", { checkedInAt: new Date() }],
-          ["an admin without a time", { checkedInBy: "a@example.com" }],
+          ["an admin without a time", { checkedInBy: adminId("a") }],
+          ["an admin who doesn't exist", { checkedInAt: new Date(), checkedInBy: "no-such-user" }],
           ["an empty admin", { checkedInAt: new Date(), checkedInBy: "" }],
         ];
         for (const [name, data] of cases) {
@@ -530,7 +568,7 @@ describe(
         }
         await prisma.guest.update({
           where: { id: guest.id },
-          data: { checkedInAt: new Date(), checkedInBy: "a@example.com" },
+          data: { checkedInAt: new Date(), checkedInBy: adminId("a") },
         });
         await assert.rejects(
           prisma.guest.update({
@@ -554,9 +592,9 @@ describe(
         const before = (await getDashboardCounts()).attendance;
         const guests = await Promise.all(Array.from({ length: 5 }, approved));
         await pending(); // pending guests count towards nothing
-        await checkInGuest(guests[0].checkInToken!, "a@example.com");
-        await checkInGuest(guests[1].checkInToken!, "a@example.com");
-        await checkInGuest(guests[1].checkInToken!, "a@example.com"); // a repeat adds nothing
+        await checkInGuest(guests[0].checkInToken!, adminId("a"));
+        await checkInGuest(guests[1].checkInToken!, adminId("a"));
+        await checkInGuest(guests[1].checkInToken!, adminId("a")); // a repeat adds nothing
         await cancelGuest(guests[2].id); // no longer approved
 
         const now = (await getDashboardCounts()).attendance;
@@ -569,7 +607,7 @@ describe(
       it("doesn't count a cancelled guest who had checked in", async () => {
         const before = (await getDashboardCounts()).attendance;
         const guest = await approved();
-        await checkInGuest(guest.checkInToken!, "a@example.com");
+        await checkInGuest(guest.checkInToken!, adminId("a"));
         await cancelGuest(guest.id);
         const now = (await getDashboardCounts()).attendance;
         assert.equal(now.approved, before.approved);
@@ -600,8 +638,8 @@ describe(
 
       it("lists checked-in and not-yet-checked-in guests separately", async () => {
         const guests = await Promise.all(Array.from({ length: 4 }, approved));
-        await checkInGuest(guests[0].checkInToken!, "a@example.com");
-        await checkInGuest(guests[3].checkInToken!, "b@example.com");
+        await checkInGuest(guests[0].checkInToken!, adminId("a"));
+        await checkInGuest(guests[3].checkInToken!, adminId("b"));
 
         const list = async (checkedIn?: boolean) =>
           (
@@ -625,7 +663,7 @@ describe(
       it("pages the filtered list with the right totals", async () => {
         const guests = await Promise.all(Array.from({ length: 5 }, approved));
         for (const guest of guests.slice(0, 3))
-          await checkInGuest(guest.checkInToken!, "a@example.com");
+          await checkInGuest(guest.checkInToken!, adminId("a"));
         const page = await getAdminGuests(
           { status: "APPROVED", invitedBy: HOST_ID, checkedIn: true },
           { page: 1, pageSize: 2 },
