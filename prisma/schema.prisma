@@ -58,28 +58,28 @@ model Table {
 }
 
 model Guest {
-  id             String      @id @default(uuid()) @db.Uuid
+  id               String      @id @default(uuid()) @db.Uuid
   /// Exactly as the guest (or admin) entered it; printed on the access card.
-  name           String
+  name             String
   /// Lowercase alphanumerics of `name`, used only for duplicate detection. Admins may create
   /// guests with the same name, so a numeric suffix keeps it unique ("janedoe", "janedoe2"…).
-  normalizedName String      @unique @map("normalized_name")
-  email          String
-  invitedBy      String      @map("invited_by")
-  host           Host        @relation(fields: [invitedBy], references: [id], onDelete: Restrict)
-  status         GuestStatus @default(PENDING)
+  normalizedName   String      @unique @map("normalized_name")
+  email            String
+  invitedBy        String      @map("invited_by")
+  host             Host        @relation(fields: [invitedBy], references: [id], onDelete: Restrict)
+  status           GuestStatus @default(PENDING)
   /// One of the host's tables. Required while APPROVED (CHECK constraint).
-  tableNumber    Int?        @map("table_number")
-  table          Table?      @relation(fields: [tableNumber], references: [number], onDelete: Restrict)
-  cardStatus     CardStatus  @default(NOT_SENT) @map("card_status")
-  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  approvedAt     DateTime?   @map("approved_at") @db.Timestamptz(3)
-  cardSentAt     DateTime?   @map("card_sent_at") @db.Timestamptz(3)
-  cancelledAt    DateTime?   @map("cancelled_at") @db.Timestamptz(3)
-  checkInToken   String?     @unique @map("check_in_token")
-  checkedInAt    DateTime?   @map("checked_in_at") @db.Timestamptz(3)
-  /// The email of the admin who checked them in. 
-  checkedInBy    String?     @map("checked_in_by")
+  tableNumber      Int?        @map("table_number")
+  table            Table?      @relation(fields: [tableNumber], references: [number], onDelete: Restrict)
+  cardStatus       CardStatus  @default(NOT_SENT) @map("card_status")
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  approvedAt       DateTime?   @map("approved_at") @db.Timestamptz(3)
+  cardSentAt       DateTime?   @map("card_sent_at") @db.Timestamptz(3)
+  cancelledAt      DateTime?   @map("cancelled_at") @db.Timestamptz(3)
+  checkInToken     String?     @unique @map("check_in_token")
+  checkedInAt      DateTime?   @map("checked_in_at") @db.Timestamptz(3)
+  checkedInBy      String?     @map("checked_in_by")
+  checkedInByAdmin User?       @relation("CheckedInBy", fields: [checkedInBy], references: [id], onDelete: Restrict)
 
   // Capacity and occupancy are derived from APPROVED rows per host and per table.
   @@index([email])
@@ -106,4 +106,76 @@ model InvitationSupportRequest {
 
   @@index([status, createdAt])
   @@map("invitation_support_requests")
+}
+
+// --- Admin accounts (Better Auth) ---
+model User {
+  id              String    @id
+  name            String
+  email           String    @unique
+  emailVerified   Boolean   @default(false) @map("email_verified")
+  image           String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  username        String?   @unique
+  displayUsername String?   @map("display_username")
+  /// "admin" or "check_in" (lib/roles.ts). Set by Better Auth's admin plugin; never by the user.
+  role            String    @default("check_in")
+  /// A disabled account: it can't sign in, and its sessions were deleted when it was disabled.
+  banned          Boolean   @default(false)
+  banReason       String?   @map("ban_reason")
+  banExpires      DateTime? @map("ban_expires") @db.Timestamptz(3)
+  sessions        Session[]
+  accounts        Account[]
+  checkIns        Guest[]   @relation("CheckedInBy")
+
+  @@map("users")
+}
+
+model Session {
+  id             String   @id
+  expiresAt      DateTime @map("expires_at") @db.Timestamptz(3)
+  token          String   @unique
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  impersonatedBy String?  @map("impersonated_by")
+  userId         String   @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  userId                String    @map("user_id")
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at") @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([identifier])
+  @@map("verifications")
 }

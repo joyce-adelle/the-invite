@@ -1,117 +1,58 @@
 import "server-only";
 
-import { createHash, createHmac } from "node:crypto";
-
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/validation/account";
 import { betterAuth } from "better-auth";
-import { createAuthMiddleware } from "better-auth/api";
 import { event } from "@/config/event";
-import { getAdminEmails } from "@/lib/utils";
 import { nextCookies } from "better-auth/next-js";
+import { prisma } from "@/lib/prisma";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { admin, username } from "better-auth/plugins";
+import { createAccessControl } from "better-auth/plugins/access";
+import { adminAc, defaultStatements } from "better-auth/plugins/admin/access";
+import { ROLE } from "@/lib/roles";
 
-// Admin login with Better Auth, email + one shared password.
+// Sign-in with Better Auth: username and password, stored in Postgres through
+// the Prisma adapter (users, sessions, accounts and verifications, see
+// prisma/schema.prisma).
 //
-// No `database` is configured, so Better Auth runs statelessly: the session
-// lives in an encrypted, signed cookie and nothing is written to Postgres.
-// In that mode its user and credential records sit in a per-process memory
-// store. We fill that store from the environment on the first sign-in:
-//   - one user per address in ADMIN_EMAILS,
-//   - each with a credential account whose password is ADMIN_PASSWORD_HASH.
-// Better Auth's own email/password flow then does the verification, so nobody
-// else can sign in. Changing ADMIN_EMAILS or ADMIN_PASSWORD_HASH only needs a
-// restart; no account is edited by hand.
-//
-// Generate a hash with `npm run auth:hash-password`.
+// Two roles (lib/roles.ts), kept by Better Auth's admin plugin in `users.role`:
+//   admin     made only by the seed (prisma/seed.ts) from ADMIN_USERNAME /
+//             ADMIN_PASSWORD, and can do everything
+//   check_in  made by an admin in the app, and can only check guests in
+// Sign-up is disabled. Sessions live in the database, so signing out, or an
+// account being disabled (the plugin's "ban", which also deletes its
+// sessions), ends them at once.
 
-/** Sessions can't be revoked server-side when stateless, so keep them short. */
-const SESSION_SECONDS = 60 * 60 * 12;
-
-function getPasswordHash(): string {
-  return process.env.ADMIN_PASSWORD_HASH?.trim() ?? "";
-}
-
-type AuthContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]["context"];
-
-let provisionedFor = "";
-let queue: Promise<void> = Promise.resolve();
-
-/** Serialised so two first sign-ins can't both create the same user. */
-function provisionAdmins(context: AuthContext): Promise<void> {
-  const run = queue.then(() => syncAdmins(context));
-  queue = run.catch(() => undefined);
-  return run;
-}
-
-async function syncAdmins({ internalAdapter }: AuthContext): Promise<void> {
-  const hash = getPasswordHash();
-  if (!hash) console.error("ADMIN_PASSWORD_HASH is not set: admin sign-in is disabled.");
-
-  // Without a hash nobody is provisioned, so sign-in fails closed.
-  const emails = hash ? getAdminEmails() : [];
-  const signature = createHash("sha256").update(`${emails.join(",")}\n${hash}`).digest("hex");
-  if (signature === provisionedFor) return;
-
-  for (const email of emails) {
-    const existing = await internalAdapter.findUserByEmail(email, { includeAccounts: true });
-    const user =
-      existing?.user ??
-      (await internalAdapter.createUser(
-        { email, name: email, emailVerified: true },
-        { method: "admin" },
-      ));
-    const credential = existing?.accounts.find((account) => account.providerId === "credential");
-
-    if (!credential) {
-      await internalAdapter.linkAccount({
-        userId: user.id,
-        providerId: "credential",
-        accountId: user.id,
-        password: hash,
-      });
-    } else if (credential.password !== hash) {
-      await internalAdapter.updatePassword(user.id, hash);
-    }
-  }
-
-  // Drop anyone who is no longer on the list.
-  for (const user of await internalAdapter.listUsers()) {
-    if (!emails.includes(user.email)) await internalAdapter.deleteUser(user.id);
-  }
-
-  provisionedFor = signature;
-}
-
-/**
- * Tied to the password hash, so rotating ADMIN_PASSWORD_HASH invalidates every
- * existing session cookie. Derived with a keyed hash so the cookie never
- * carries anything usable to recover the hash.
- */
-function sessionVersion(): string {
-  const key = process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET ?? "";
-  return createHmac("sha256", key).update(getPasswordHash()).digest("hex").slice(0, 16);
-}
+// What each role may do through Better Auth's own admin APIs. Admins keep the
+// plugin's full admin set; a check-in account gets none of it, so it can't
+// create, list, disable or change any user, itself included.
+const ac = createAccessControl(defaultStatements);
+const roles = {
+  [ROLE.ADMIN]: ac.newRole(adminAc.statements),
+  [ROLE.CHECK_IN]: ac.newRole({ user: [], session: [] }),
+};
 
 export const auth = betterAuth({
   appName: event.name,
+  database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
     disableSignUp: true,
+    minPasswordLength: MIN_PASSWORD_LENGTH,
+    maxPasswordLength: MAX_PASSWORD_LENGTH,
   },
-  session: {
-    expiresIn: SESSION_SECONDS,
-    cookieCache: { version: sessionVersion },
-  },
-  // Counted per IP (x-forwarded-for) in this instance's memory.
-  rateLimit: {
-    enabled: true,
-    window: 60,
-    max: 60,
-    customRules: { "/sign-in/email": { window: 60, max: 5 } },
-  },
-  hooks: {
-    before: createAuthMiddleware(async (ctx) => {
-      if (ctx.path === "/sign-in/email") await provisionAdmins(ctx.context);
+
+  plugins: [
+    username(),
+    admin({
+      ac,
+      roles,
+      adminRoles: [ROLE.ADMIN],
+      // Least privilege: an account made without a role can only check in.
+      defaultRole: ROLE.CHECK_IN,
+      bannedUserMessage: "This account has been disabled. Please ask an event administrator.",
     }),
-  },
-  // Must stay last so it can forward Set-Cookie headers from server actions.
-  plugins: [nextCookies()],
+    // Must stay last so it can forward Set-Cookie headers from server actions.
+    nextCookies(),
+  ],
 });

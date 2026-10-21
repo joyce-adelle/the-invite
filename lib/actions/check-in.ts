@@ -2,25 +2,27 @@
 
 import type { CheckInActionResult } from "@/types/check-in";
 import { checkInGuest } from "@/lib/data/check-in";
-import { getAdminSession } from "@/lib/admin-session";
+import { getCheckInSession } from "@/lib/admin-session";
 import { isCheckInToken } from "@/lib/check-in/check-in-path";
 import { revalidatePath } from "next/cache";
 
 /**
  * Lets the guest behind a QR code in. This is a public POST endpoint, so it
- * proves who is asking itself: a valid token alone authorizes nothing. The
- * admin recorded as having checked the guest in is the one in the verified
- * session, never anything the browser sends, and the guest's status and any
+ * proves who is asking itself: a valid token alone authorizes nothing. It
+ * takes an active admin or check-in account (a disabled account has no
+ * session left, and is refused even if it had one). The user recorded as
+ * having checked the guest in is the one in the verified session, never
+ * anything the browser sends, and the guest's status and any
  * earlier check-in are decided by the database (lib/data/check-in.ts).
  */
 export async function confirmCheckInAction(token: string): Promise<CheckInActionResult> {
-  const session = await getAdminSession();
+  const session = await getCheckInSession();
   if (!session) return { outcome: "unauthorized" };
 
   if (!isCheckInToken(token)) return { outcome: "not-found" };
 
   try {
-    const result = await checkInGuest(token, session.user.email);
+    const result = await checkInGuest(token, session.user.id);
     // The dashboard's attendance numbers and list changed.
     if (result.outcome === "checked-in") revalidatePath("/admin");
     return result;

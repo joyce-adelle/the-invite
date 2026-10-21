@@ -7,7 +7,7 @@ export type CheckInView = {
   tableNumber: number | null;
   status: GuestStatus;
   checkedInAt: Date | null;
-  /** The email of the admin who checked them in. */
+  /** The username of the admin who checked them in. */
   checkedInBy: string | null;
 };
 

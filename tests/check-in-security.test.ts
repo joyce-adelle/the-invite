@@ -24,23 +24,21 @@ function sourceFiles(dir: string): string[] {
 describe("who can see a guest at the door", () => {
   const content = read("components/app/check-in/check-in-content.tsx");
 
-  it("checks the admin session before reading anything about the guest", () => {
-    const session = content.indexOf("getAdminSession()");
+  it("checks for an admin or check-in session before reading anything about the guest", () => {
+    const session = content.indexOf("getCheckInSession()");
     const lookup = content.indexOf("getCheckInView(");
     assert.ok(session >= 0 && lookup >= 0);
     assert.ok(session < lookup, "session first, then the lookup");
-    assert.match(
-      content,
-      /if \(!\(await getAdminSession\(\)\)\) return <RestrictedAccess/,
-    );
+    assert.match(content, /const session = await getCheckInSession\(\);\s*if \(!session\) return <RestrictedAccess/);
     // The only thing awaited first is the route's own parameters, not anything about a guest.
     const awaited = content.slice(0, session).match(/await[^;]*/g) ?? [];
+    // (The trailing "await " is the session check's own.)
     assert.deepEqual(awaited, ["await params", "await "], "only the address itself comes before the check");
   });
 
   it("shows a visitor who isn't an admin a page that has no guest data in it, for any address", () => {
     const restricted = read("components/app/check-in/restricted-access.tsx");
-    assert.match(restricted, /restricted to authorized event administrators/);
+    assert.match(restricted, /restricted to authorized event staff/);
     const code = restricted.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""); // comments aren't what is shown
     assert.doesNotMatch(code, /@\/lib\/data|getCheckInView|prisma|guest/i);
     // Only the address is used, and only to make a sign-in link when it is shaped like a real code.
@@ -50,7 +48,7 @@ describe("who can see a guest at the door", () => {
   it("only offers sign-in a way back to a check-in address", () => {
     const gate = read("components/app/admin/login-gate.tsx");
     assert.match(gate, /safeReturnPath\(\(await searchParams\)\.next\)/);
-    assert.match(gate, /redirect\(next \?\? "\/admin"\)/);
+    assert.match(gate, /if \(session && canCheckIn\(session\.user\)\) redirect\(next \?\? homeFor\(session\.user\)\)/);
     assert.match(
       read("components/app/admin/login-form.tsx"),
       /callbackURL: next \?\? "\/admin"/,
@@ -68,8 +66,8 @@ describe("who can let a guest in", () => {
   const action = read("lib/actions/check-in.ts");
   const data = read("lib/data/check-in.ts");
 
-  it("verifies the admin session first, and nothing else before it is awaited", () => {
-    const session = action.indexOf("await getAdminSession()");
+  it("verifies an admin or check-in session first, and nothing else before it is awaited", () => {
+    const session = action.indexOf("await getCheckInSession()");
     const check = action.indexOf("checkInGuest(");
     assert.ok(session >= 0 && check > session);
     assert.match(
@@ -90,7 +88,7 @@ describe("who can let a guest in", () => {
       action,
       /export async function confirmCheckInAction\(token: string\)/,
     );
-    assert.match(action, /checkInGuest\(token, session\.user\.email\)/);
+    assert.match(action, /checkInGuest\(token, session\.user\.id\)/);
     // No guest id, admin, status or time is accepted from the request.
     assert.doesNotMatch(action, /formData|adminEmail|checkedIn(At|By)\s*[:=]/);
   });
@@ -98,7 +96,7 @@ describe("who can let a guest in", () => {
   it("makes the decision in one conditional update that needs an approved guest and both fields empty", () => {
     assert.match(
       data,
-      /updateMany\(\{\s*where: \{ checkInToken: token, status: GuestStatus\.APPROVED, checkedInAt: null, checkedInBy: null \},\s*data: \{ checkedInAt: new Date\(\), checkedInBy: by \}/,
+      /updateMany\(\{\s*where: \{ checkInToken: token, status: GuestStatus\.APPROVED, checkedInAt: null, checkedInBy: null \},\s*data: \{ checkedInAt: new Date\(\), checkedInBy: adminId \}/,
     );
     // Both fields are set in that single statement, and nowhere else.
     assert.equal(data.match(/checkedInAt: new Date\(\)/g)?.length, 1);
@@ -156,6 +154,61 @@ describe("where the token must not go", () => {
         `${file} can't be imported by client code`,
       );
     }
+  });
+});
+
+describe("staff accounts, and who may manage them", () => {
+  const actions = read("lib/actions/staff-accounts.ts");
+
+  it("makes every account action check for an active admin before anything else", () => {
+    const names = [...actions.matchAll(/export async function (\w+Action)\(/g)].map((m) => m[1]);
+    assert.deepEqual(names.sort(), ["createAdminUserAction", "createCheckInUserAction", "resetStaffAccountPasswordAction", "setStaffAccountDisabledAction"]);
+    for (const name of names) {
+      const start = actions.indexOf(`function ${name}(`);
+      const body = actions.slice(start, actions.indexOf("\nexport ", start + 1) >>> 0 || undefined);
+      const check = body.indexOf("await requireAdmin()");
+      assert.ok(check > 0, `${name} checks the admin`);
+      assert.doesNotMatch(body.slice(0, check), /await\s+[A-Za-z]/, `${name} awaits nothing first`);
+    }
+  });
+
+  it("passes the acting admin's own headers to Better Auth, so it checks their role too", () => {
+    for (const call of ["createStaffAccount(await headers()", "setStaffAccountDisabled(await headers()", "resetStaffAccountPassword(await headers()"]) {
+      assert.ok(actions.includes(call), call);
+    }
+    // The role of a new account is fixed by which action was called, never sent by the browser.
+    assert.match(actions, /createCheckInUserAction[\s\S]*?return create\(ROLE\.CHECK_IN, input\)/);
+    assert.match(actions, /createAdminUserAction[\s\S]*?return create\(ROLE\.ADMIN, input\)/);
+    const lib = read("lib/staff-accounts.ts");
+    for (const api of ["createUser", "banUser", "unbanUser", "setUserPassword", "revokeUserSessions"]) {
+      assert.match(lib, new RegExp(`auth\\.api\\.${api}\\(\\{\\s*headers`), api);
+    }
+    // Every change goes through one guard: an active admin, not the default admin, not themselves.
+    assert.equal(lib.match(/await findManageable\(headers, id\)/g)?.length, 2, "both disabling and resetting use it");
+    const guard = lib.slice(lib.indexOf("async function findManageable"));
+    assert.match(guard, /if \(!session \|\| !isAdmin\(session\.user\)\)/);
+    assert.match(guard, /if \(account\.isDefaultAdmin\)/);
+    assert.match(guard, /if \(account\.id === session\.user\.id\)/);
+    assert.match(lib, /defaultAdmin !== null && user\.username === defaultAdmin/, "the default admin is the one ADMIN_USERNAME names");
+  });
+
+  it("keeps Better Auth's own admin endpoints unreachable over HTTP", () => {
+    const route = read("app/api/auth/[...all]/route.ts");
+    assert.match(route, /new Set\(\["\/api\/auth\/sign-in\/username", "\/api\/auth\/sign-out"\]\)/);
+  });
+
+  it("gives a check-in account no admin rights in Better Auth, and refuses a disabled account everywhere", () => {
+    const authConfig = read("lib/auth.ts");
+    assert.match(authConfig, /\[ROLE\.CHECK_IN\]: ac\.newRole\(\{ user: \[\], session: \[\] \}\)/);
+    assert.match(authConfig, /adminRoles: \[ROLE\.ADMIN\]/);
+    assert.match(authConfig, /defaultRole: ROLE\.CHECK_IN/);
+    assert.match(read("lib/roles.ts"), /const isActive = \(user: AccessUser\) => user\.banned !== true;/);
+  });
+
+  it("only shows a check-in account the check-in pages: its home needs the check-in permission", () => {
+    assert.match(read("components/app/check-in/check-in-home.tsx"), /await requireCheckIn\(\)/);
+    const home = read("components/app/check-in/check-in-home.tsx");
+    assert.doesNotMatch(home, /@\/lib\/data|prisma|getCheckInView/, "it reads no guest data at all");
   });
 });
 

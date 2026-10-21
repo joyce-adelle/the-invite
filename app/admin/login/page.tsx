@@ -7,14 +7,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { event } from "@/config/event";
 
 export const metadata = {
-  title: "Admin sign in",
+  title: "Staff sign in",
   robots: { index: false, follow: false },
 };
 
 export default function AdminLoginPage({ searchParams }: PageProps<"/admin/login">) {
   return (
     <PublicShell>
-      <PageHeader variant="public" eyebrow="Admin" title={event.name} />
+      <PageHeader variant="public" eyebrow="Staff sign in" title={event.name} />
       <div className="mt-10 rounded-2xl border border-border bg-card/60 p-6 shadow-sm sm:p-8">
         <Suspense fallback={<Skeleton className="h-60 w-full" />}>
           <LoginGate searchParams={searchParams} />

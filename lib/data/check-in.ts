@@ -4,7 +4,6 @@ import { generateCheckInToken, isCheckInToken } from "@/lib/check-in/check-in";
 import { GuestError } from "@/lib/data/errors";
 import { GuestStatus, Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { normalizeEmail } from "@/lib/utils";
 import type { CheckInOutcome, CheckInView } from "@/types/check-in";
 
 // Check-in at the door. The server decides everything here: who the guest is
@@ -16,12 +15,23 @@ const select = {
   tableNumber: true,
   status: true,
   checkedInAt: true,
-  checkedInBy: true,
   host: { select: { name: true } },
+  checkedInByAdmin: { select: { username: true, displayUsername: true, name: true } },
 } satisfies Prisma.GuestSelect;
 
-function toView({ host, ...guest }: Prisma.GuestGetPayload<{ select: typeof select }>): CheckInView {
-  return { ...guest, hostName: host.name };
+/** The admin is shown by username, never by their database id. */
+function toView({
+  host,
+  checkedInByAdmin,
+  ...guest
+}: Prisma.GuestGetPayload<{ select: typeof select }>): CheckInView {
+  return {
+    ...guest,
+    hostName: host.name,
+    checkedInBy: checkedInByAdmin
+      ? (checkedInByAdmin.displayUsername ?? checkedInByAdmin.username ?? checkedInByAdmin.name)
+      : null,
+  };
 }
 
 /** The guest behind a token, or null for a token that doesn't belong to anyone. */
@@ -39,16 +49,17 @@ export async function getCheckInView(token: string): Promise<CheckInView | null>
  * longer matches and is told the guest already checked in, with the first
  * admin's details, which are never overwritten.
  *
- * `adminEmail` must come from the verified session, never from the request.
+ * `adminId` is the signed-in admin.
  */
-export async function checkInGuest(token: string, adminEmail: string): Promise<CheckInOutcome> {
-  const by = normalizeEmail(adminEmail);
-  if (!by) throw new Error("A check-in has to name the admin who did it.");
+export async function checkInGuest(token: string, adminId: string): Promise<CheckInOutcome> {
+  if (typeof adminId !== "string" || !adminId.trim()) {
+    throw new Error("A check-in has to name the admin who did it.");
+  }
   if (!isCheckInToken(token)) return { outcome: "not-found" };
 
   const { count } = await prisma.guest.updateMany({
     where: { checkInToken: token, status: GuestStatus.APPROVED, checkedInAt: null, checkedInBy: null },
-    data: { checkedInAt: new Date(), checkedInBy: by },
+    data: { checkedInAt: new Date(), checkedInBy: adminId },
   });
 
   const row = await prisma.guest.findUnique({ where: { checkInToken: token }, select });

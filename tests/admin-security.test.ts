@@ -67,9 +67,24 @@ describe("who can use the admin actions", () => {
     assert.match(route, /problem\(401/);
   });
 
-  it("keeps the whole admin area behind the sign-in redirect", () => {
-    const proxy = readFileSync("proxy.ts", "utf8");
-    assert.match(proxy, /\/admin\/:path\*/);
-    assert.match(proxy, /\/admin\/login/);
+  it("keeps the whole admin area behind an admin check: the shared frame and every page's own content", () => {
+    // The layout's frame redirects anyone who isn't an active admin before the page shows.
+    assert.match(readFileSync("components/app/admin/admin-frame.tsx", "utf8"), /await requireAdmin\(\)/);
+    // And each page checks again itself, since layouts don't re-run on client navigation.
+    for (const file of [
+      "components/app/admin/dashboard.tsx",
+      "components/app/admin/support-requests.tsx",
+      "components/app/admin/staff-accounts.tsx",
+    ]) {
+      assert.match(readFileSync(file, "utf8"), /await requireAdmin\(\)/, file);
+    }
+  });
+
+  it("makes requireAdmin() refuse a check-in account, not just a signed-out visitor", () => {
+    const session = readFileSync("lib/admin-session.ts", "utf8");
+    const require = session.slice(session.indexOf("export async function requireAdmin"));
+    assert.match(require, /if \(!session\) redirect\("\/admin\/login"\)/);
+    assert.match(require, /if \(!isAdmin\(session\.user\)\) redirect\(/);
+    assert.match(session, /session && isAdmin\(session\.user\) \? session : null/, "getAdminSession too");
   });
 });
