@@ -38,9 +38,12 @@ function isRedirectError(error: unknown): boolean {
 export function CheckInPanel({
   token,
   initial,
+  canManage,
 }: {
   token: string;
   initial: CheckInView;
+  /** An admin, who can look into a problem in the dashboard; a check-in account can't. */
+  canManage: boolean;
 }) {
   const [guest, setGuest] = useState(initial);
   const [notice, setNotice] = useState<Notice>();
@@ -146,8 +149,7 @@ export function CheckInPanel({
             icon={<BadgeCheck className="size-5" aria-hidden />}
             title="Checked in"
           >
-            {guest.name} is checked in. This was recorded by the server just
-            now.
+            {guest.name} is checked in.
           </Banner>
         )}
         {notice?.kind === "info" && (
@@ -201,8 +203,10 @@ export function CheckInPanel({
             icon={<ShieldAlert className="size-5" aria-hidden />}
             title="Cannot be used for entry"
           >
-            {state.reason} Please check the situation in the admin dashboard
-            before letting this guest in.
+            {state.reason}{" "}
+            {canManage
+              ? "Please check the situation in the admin dashboard before letting this guest in."
+              : "Please don't let this guest in until an event administrator has looked into it."}
             {guest.checkedInAt && (
               <>
                 {" "}
@@ -228,7 +232,7 @@ export function CheckInPanel({
           </Button>
         )}
 
-        {state.kind === "not-eligible" && (
+        {state.kind === "not-eligible" && canManage && (
           <Link
             href="/admin"
             className={cn(buttonVariants({ variant: "outline" }), "w-full")}

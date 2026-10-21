@@ -4,8 +4,8 @@ import { SearchX } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-/** A code that doesn't belong to any invitation. */
-export function InvalidInvitation() {
+/** A code that doesn't belong to any invitation. Only an admin is pointed at the dashboard. */
+export function InvalidInvitation({ canManage }: { canManage: boolean }) {
   return (
     <div className="rounded-2xl border border-destructive/30 bg-card/90 p-6 shadow-md backdrop-blur-sm sm:p-8">
       <div role="alert" className="flex flex-col items-center py-4 text-center">
@@ -15,12 +15,14 @@ export function InvalidInvitation() {
         <h1 className="mt-6 font-display text-3xl font-medium text-primary">Invitation not found</h1>
         <div aria-hidden className="mt-4 h-px w-12 bg-gold" />
         <p className="mt-5 max-w-sm text-pretty text-muted-foreground">
-          This code doesn&apos;t match any invitation. Try scanning it again, or look the guest up in
-          the admin dashboard.
+          This code doesn&apos;t match any invitation. Try scanning it again
+          {canManage ? ", or look the guest up in the admin dashboard." : ", or ask an event administrator."}
         </p>
-        <Link href="/admin" className={cn(buttonVariants({ variant: "outline" }), "mt-8")}>
-          Open the dashboard
-        </Link>
+        {canManage && (
+          <Link href="/admin" className={cn(buttonVariants({ variant: "outline" }), "mt-8")}>
+            Open the dashboard
+          </Link>
+        )}
       </div>
     </div>
   );

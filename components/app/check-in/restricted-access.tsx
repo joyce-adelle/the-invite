@@ -26,10 +26,10 @@ export function RestrictedAccess({ token }: { token: string }) {
         </h1>
         <div aria-hidden className="mt-4 h-px w-12 bg-gold" />
         <p className="mt-5 max-w-sm text-pretty text-muted-foreground">
-          This page is restricted to authorized event administrators.
+          This page is restricted to authorized event staff.
         </p>
         <Link href={login} className={cn(buttonVariants(), "mt-8")}>
-          Admin sign in
+          Staff sign in
         </Link>
       </div>
     </div>

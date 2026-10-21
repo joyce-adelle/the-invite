@@ -119,6 +119,12 @@ model User {
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   username        String?   @unique
   displayUsername String?   @map("display_username")
+  /// "admin" or "check_in" (lib/roles.ts). Set by Better Auth's admin plugin; never by the user.
+  role            String    @default("check_in")
+  /// A disabled account: it can't sign in, and its sessions were deleted when it was disabled.
+  banned          Boolean   @default(false)
+  banReason       String?   @map("ban_reason")
+  banExpires      DateTime? @map("ban_expires") @db.Timestamptz(3)
   sessions        Session[]
   accounts        Account[]
   checkIns        Guest[]   @relation("CheckedInBy")
@@ -127,15 +133,16 @@ model User {
 }
 
 model Session {
-  id        String   @id
-  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
-  token     String   @unique
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  ipAddress String?  @map("ip_address")
-  userAgent String?  @map("user_agent")
-  userId    String   @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String   @id
+  expiresAt      DateTime @map("expires_at") @db.Timestamptz(3)
+  token          String   @unique
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  impersonatedBy String?  @map("impersonated_by")
+  userId         String   @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("sessions")

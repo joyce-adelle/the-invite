@@ -12,8 +12,14 @@ const INVALID_CREDENTIALS = "Incorrect username or password.";
 const TOO_MANY_ATTEMPTS =
   "Too many attempts. Please wait a minute and try again.";
 const GENERIC_ERROR = "We couldn't sign you in. Please try again.";
+// Only reachable with the right password, so it gives nothing away.
+const DISABLED = "This account has been disabled. Please ask an event administrator.";
 
-/** `next` is an address already checked by the server (safeReturnPath); without one, sign-in goes to the dashboard. */
+/**
+ * `next` is an address already checked by the server (safeReturnPath). Without
+ * one, sign-in goes to the dashboard, which sends a check-in account on to its
+ * own check-in page.
+ */
 export function LoginForm({ next }: { next?: string }) {
   const [pending, setPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -40,7 +46,9 @@ export function LoginForm({ next }: { next?: string }) {
       });
       if (error) {
         setError(
-          error.status === 429
+          error.code === "BANNED_USER"
+            ? DISABLED
+            : error.status === 429
             ? TOO_MANY_ATTEMPTS
             : error.status && error.status < 500
               ? INVALID_CREDENTIALS

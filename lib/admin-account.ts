@@ -1,17 +1,18 @@
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 
 import type { PrismaClient } from "@/lib/generated/prisma/client";
+import { ROLE } from "@/lib/roles";
+import { MIN_PASSWORD_LENGTH, usernameSchema } from "@/lib/validation/account";
 import { randomUUID } from "node:crypto";
 
 // Making an admin account. Used by the seed (prisma/seed.ts), not by the app:
-// there is no sign-up, so this is the only way an account comes to exist. It
+// there is no sign-up, and admins can only make check-in accounts in the app
+// (lib/check-in-users.ts), so this is the only way an admin comes to exist. It
 // writes the rows Better Auth reads (a user, plus a credential account holding
 // the password's scrypt hash, made with Better Auth's own hasher), so the
 // account signs in like any other.
 
-/** Better Auth's own default rules for a username, and the length we require of a password. */
-export const MIN_PASSWORD_LENGTH = 8;
-const USERNAME_PATTERN = /^[a-z0-9_.]{3,30}$/;
+export { MIN_PASSWORD_LENGTH };
 
 export type AdminInput = {
   username: string;
@@ -34,7 +35,7 @@ export async function upsertAdmin(
 ): Promise<AdminResult> {
   const typed = input.username.trim();
   const username = typed.toLowerCase();
-  if (!USERNAME_PATTERN.test(username)) {
+  if (!usernameSchema.safeParse(typed).success) {
     throw new Error("The admin username must be 3 to 30 characters: letters, numbers, underscores or dots.");
   }
   if (input.password.length < MIN_PASSWORD_LENGTH) {
@@ -60,12 +61,18 @@ export async function upsertAdmin(
         emailVerified: true,
         username,
         displayUsername: typed,
+        role: ROLE.ADMIN,
         accounts: {
           create: { id: randomUUID(), accountId: id, providerId: "credential", password: await hashPassword(input.password) },
         },
       },
     });
     return "created";
+  }
+
+  // A check-in account with this username is not quietly promoted to admin.
+  if (existing.role !== ROLE.ADMIN) {
+    throw new Error(`"${username}" is already a check-in account. Choose another ADMIN_USERNAME.`);
   }
 
   const credential = existing.accounts[0];

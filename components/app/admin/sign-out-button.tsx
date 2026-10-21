@@ -7,7 +7,8 @@ import { Loader2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 
-export function SignOutButton({ name }: { name: string }) {
+/** `showName: false` when the name is already shown nearby. */
+export function SignOutButton({ name, showName = true }: { name: string; showName?: boolean }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
@@ -23,7 +24,7 @@ export function SignOutButton({ name }: { name: string }) {
 
   return (
     <div className="flex items-center gap-3">
-      <span className="hidden text-sm text-muted-foreground sm:inline">{name}</span>
+      {showName && <span className="hidden text-sm text-muted-foreground sm:inline">{name}</span>}
       <Button variant="outline" size="sm" onClick={handleSignOut} disabled={pending}>
         {pending ? <Loader2 className="animate-spin" aria-hidden /> : <LogOut aria-hidden />}
         Sign out
