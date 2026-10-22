@@ -46,12 +46,12 @@ describe(
 
     describe("making one (the seed)", () => {
       it("creates a user and a credential account holding a hash, never the password", async () => {
-        assert.equal(
+        assert.deepEqual(
           await upsertAdmin(prisma, {
             username: "TestAcct_One",
             password: PASSWORD,
           }),
-          "created",
+          ["created"],
         );
 
         const user = await prisma.user.findUniqueOrThrow({
@@ -102,7 +102,7 @@ describe(
         const before = await prisma.account.findFirstOrThrow({
           where: { user: { username: "testacct_two" } },
         });
-        assert.equal(
+        assert.deepEqual(
           await upsertAdmin(prisma, {
             username: "TESTACCT_TWO",
             password: PASSWORD,
@@ -134,12 +134,12 @@ describe(
         );
 
         const next = "a different long password 123";
-        assert.equal(
+        assert.deepEqual(
           await upsertAdmin(prisma, {
             username: "testacct_three",
             password: next,
           }),
-          "password-changed",
+          ["password-changed"],
         );
         assert.equal(
           await prisma.session.count({ where: { userId: user.id } }),
@@ -296,10 +296,12 @@ describe("where an admin comes from", () => {
   });
 
   it("never puts the seed's password in the code or the migration", () => {
-    assert.doesNotMatch(
-      read("prisma/seed.ts"),
-      /password\s*[:=]\s*["'][^"']{8,}["']/i,
-    );
-    assert.match(read("prisma/seed.ts"), /process\.env\.ADMIN_PASSWORD/);
+    for (const file of ["prisma/seed.ts", "prisma/seed-prod.ts", "prisma/seed-admin.ts"]) {
+      assert.doesNotMatch(read(file), /password\s*[:=]\s*["'][^"']{8,}["']/i, file);
+    }
+    assert.match(read("prisma/seed-admin.ts"), /process\.env\.ADMIN_PASSWORD/);
+    for (const file of ["prisma/seed.ts", "prisma/seed-prod.ts"]) {
+      assert.match(read(file), /import \{ seedAdmin \} from "\.\/seed-admin"/, `${file} seeds the admin the same way`);
+    }
   });
 });

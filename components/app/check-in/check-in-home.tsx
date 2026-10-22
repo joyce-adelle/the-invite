@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ScanLine } from "lucide-react";
 
 import { StaffBar } from "@/components/app/check-in/staff-bar";
@@ -35,6 +36,13 @@ export async function CheckInHome() {
               <span className="font-medium text-foreground">Confirm check-in</span>.
             </li>
           </ol>
+          <p className="mt-6 max-w-sm text-sm text-pretty text-muted-foreground">
+            A printed card has no QR code: count those guests in under{" "}
+            <Link href="/check-in/printed" className="font-medium text-primary underline-offset-4 hover:underline">
+              Printed cards
+            </Link>
+            .
+          </p>
         </div>
       </div>
     </>

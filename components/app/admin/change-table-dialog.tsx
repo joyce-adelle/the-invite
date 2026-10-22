@@ -67,18 +67,21 @@ export function ChangeTableDialog({
             <SelectContent>
               {tables.map((table) => {
                 const current = table.number === guest.tableNumber;
+                const physical = table.cardType === "PHYSICAL";
                 const detail = current
                   ? "current"
-                  : table.remaining === 0
-                    ? "full"
-                    : `${table.remaining} free`;
+                  : physical
+                    ? "physical cards"
+                    : table.remaining === 0
+                      ? "full"
+                      : `${table.remaining} free`;
                 return (
                   <SelectItem
                     key={table.number}
                     value={String(table.number)}
                     disabled={table.remaining === 0 && !current}
                   >
-                    Table {table.number} · {table.occupied}/{table.capacity} seated · {detail}
+                    Table {table.number} · {physical ? `${table.capacity} seats` : `${table.occupied}/${table.capacity} seated`} · {detail}
                   </SelectItem>
                 );
               })}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Users } from "lucide-react";
+import { Building2, Users } from "lucide-react";
 
 import { formatDateTime } from "@/components/app/admin/date-cell";
 import { buttonVariants } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
 } from "@/components/app/admin/support-notifications";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { requireAdmin } from "@/lib/admin-session";
+import { isSuperAdmin } from "@/lib/roles";
 import { getSupportNotifications } from "@/lib/data/support";
 import { SUPPORT_ISSUE_SHORT_LABELS } from "@/lib/support";
 
@@ -46,16 +47,34 @@ export async function AdminFrame({ children }: { children: React.ReactNode }) {
     <AdminShell
       actions={
         <div className="flex items-center gap-3">
+          {isSuperAdmin(user) && (
+            <Link
+              href="/admin/hosts"
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "sm" }),
+                "text-muted-foreground",
+              )}
+            >
+              <Building2 aria-hidden />
+              <span className="hidden md:inline">Hosts</span>
+              <span className="sr-only md:hidden">Hosts</span>
+            </Link>
+          )}
           <Link
             href="/admin/accounts"
-            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-muted-foreground")}
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "text-muted-foreground",
+            )}
           >
             <Users aria-hidden />
             <span className="hidden md:inline">Staff accounts</span>
             <span className="sr-only md:hidden">Staff accounts</span>
           </Link>
           <SupportNotifications notifications={notifications} />
-          <SignOutButton name={user.displayUsername ?? user.username ?? user.name} />
+          <SignOutButton
+            name={user.displayUsername ?? user.username ?? user.name}
+          />
         </div>
       }
     >

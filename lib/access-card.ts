@@ -9,7 +9,7 @@ import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { accessCard, event } from "@/config/event";
 import { checkInUrl, createCheckInQr } from "@/lib/check-in/check-in";
 import { ensureCheckInToken } from "@/lib/data/check-in";
-import { getPublicHost } from "@/lib/data/hosts";
+import { getHostName } from "@/lib/data/hosts";
 import { sendEmail, type EmailClient } from "@/lib/email";
 import { GuestStatus, type Guest } from "@/types/guest";
 
@@ -276,9 +276,10 @@ export async function createAccessCardPdf(card: AccessCardDetails): Promise<Uint
 
 /** The name of the host who invited the guest. Throws if the host can't be found. */
 async function hostNameOf(guest: Guest): Promise<string> {
-  const host = await getPublicHost(guest.invitedBy);
-  if (!host) throw new Error(`Guest ${guest.id}'s host "${guest.invitedBy}" no longer exists.`);
-  return host.name;
+  // Hidden hosts too: a guest's card names their host whether or not it takes new requests.
+  const hostName = await getHostName(guest.invitedBy);
+  if (!hostName) throw new Error(`Guest ${guest.id}'s host "${guest.invitedBy}" no longer exists.`);
+  return hostName;
 }
 
 /**

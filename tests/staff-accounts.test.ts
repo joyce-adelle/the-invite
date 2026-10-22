@@ -26,7 +26,7 @@ import { checkInGuest } from "@/lib/data/check-in";
 import { createGuest } from "@/lib/data/guests";
 import { approveInvitation } from "@/lib/invitations";
 import { prisma } from "@/lib/prisma";
-import { canCheckIn, homeFor, isAdmin, ROLE } from "@/lib/roles";
+import { canCheckIn, homeFor, isAdmin, isSuperAdmin, ROLE } from "@/lib/roles";
 import {
   parseNewAccount,
   parsePassword,
@@ -38,7 +38,7 @@ const createCheckInUser = (headers: Headers, input: NewAccountInput) =>
 const createAdminUser = (headers: Headers, input: NewAccountInput) =>
   createStaffAccount(headers, input, ROLE.ADMIN);
 const listCheckInUsers = () => listStaffAccounts(ROLE.CHECK_IN);
-const listAdminUsers = () => listStaffAccounts(ROLE.ADMIN);
+const listAdminUsers = () => listStaffAccounts("admins");
 
 // Check-in accounts end to end against the real database and Better Auth:
 // made by an admin, signing in by username, what each role may do, disabling,
@@ -153,7 +153,7 @@ describe(
           "createdAt",
           "disabled",
           "id",
-          "isDefaultAdmin",
+          "isSuperAdmin",
           "role",
           "updatedAt",
           "username",
@@ -459,41 +459,43 @@ describe(
         assert.ok((await signIn("tcu_back", PASSWORD)).ok);
       });
 
-      it("never lets anyone change the default admin from ADMIN_USERNAME, nor an account that doesn't exist", async () => {
-        const adminId = (
+      it("never lets anyone change a super admin, whoever asks, nor an account that doesn't exist", async () => {
+        const superId = (
           await prisma.user.findUniqueOrThrow({
             where: { username: ADMIN.username },
           })
         ).id;
-        // Another admin tries: refused, whoever asks.
+        // An ordinary admin, and the super admin itself: both refused.
         await createAdminUser(admin, {
           username: "tcu_other_boss",
           password: PASSWORD,
         });
         const other = await signedIn("tcu_other_boss", PASSWORD);
-        await rejectsWith(
-          "PROTECTED",
-          setCheckInUserDisabled(other, adminId, true),
-        );
-        await rejectsWith(
-          "PROTECTED",
-          resetCheckInUserPassword(other, adminId, "a new password"),
-        );
+        for (const who of [other, admin]) {
+          await rejectsWith(
+            "PROTECTED",
+            setCheckInUserDisabled(who, superId, true),
+          );
+          await rejectsWith(
+            "PROTECTED",
+            resetCheckInUserPassword(who, superId, "a new password"),
+          );
+        }
         await rejectsWith(
           "NOT_FOUND",
           setCheckInUserDisabled(admin, "no-such-user", true),
         );
         const row = await prisma.user.findUniqueOrThrow({
-          where: { id: adminId },
+          where: { id: superId },
         });
         assert.equal(row.banned, false);
+        assert.equal(row.role, ROLE.SUPER_ADMIN);
         assert.ok(
           (await signIn(ADMIN.username, ADMIN.password)).ok,
-          "the default admin's password is unchanged",
+          "the super admin's password is unchanged",
         );
         assert.equal(
-          (await listAdminUsers()).find((a) => a.id === adminId)
-            ?.isDefaultAdmin,
+          (await listAdminUsers()).find((a) => a.id === superId)?.isSuperAdmin,
           true,
         );
       });
@@ -515,29 +517,66 @@ describe(
         assert.ok(await sessionOf(self), "still signed in");
       });
 
-      it("follows ADMIN_USERNAME: with it unset, the seed's admin is an ordinary admin", async () => {
+      it("goes by the role, not ADMIN_USERNAME: with it unset, the super admin is still protected", async () => {
         delete process.env.ADMIN_USERNAME;
-        const adminId = (
+        const superId = (
           await prisma.user.findUniqueOrThrow({
             where: { username: ADMIN.username },
           })
         ).id;
         assert.equal(
-          (await listAdminUsers()).find((a) => a.id === adminId)
-            ?.isDefaultAdmin,
-          false,
+          (await listAdminUsers()).find((a) => a.id === superId)?.isSuperAdmin,
+          true,
         );
         await createAdminUser(admin, {
           username: "tcu_other_boss2",
           password: PASSWORD,
         });
         const other = await signedIn("tcu_other_boss2", PASSWORD);
-        await setCheckInUserDisabled(other, adminId, true);
+        await rejectsWith(
+          "PROTECTED",
+          setCheckInUserDisabled(other, superId, true),
+        );
         assert.equal(
-          (await prisma.user.findUniqueOrThrow({ where: { id: adminId } }))
+          (await prisma.user.findUniqueOrThrow({ where: { id: superId } }))
             .banned,
+          false,
+        );
+      });
+
+      it("lets only a super admin change an ordinary admin; any admin still manages check-in users", async () => {
+        const target = await createAdminUser(admin, {
+          username: "tcu_target_admin",
+          password: PASSWORD,
+        });
+        await createAdminUser(admin, {
+          username: "tcu_plain_admin",
+          password: PASSWORD,
+        });
+        const plain = await signedIn("tcu_plain_admin", PASSWORD);
+        await rejectsWith(
+          "FORBIDDEN",
+          setCheckInUserDisabled(plain, target.id, true),
+        );
+        await rejectsWith(
+          "FORBIDDEN",
+          resetCheckInUserPassword(plain, target.id, "a new password"),
+        );
+        assert.equal(
+          (await prisma.user.findUniqueOrThrow({ where: { id: target.id } }))
+            .banned,
+          false,
+        );
+
+        const door = await createCheckInUser(plain, {
+          username: "tcu_plains_door",
+          password: PASSWORD,
+        });
+        assert.equal(
+          (await setCheckInUserDisabled(plain, door.id, true)).disabled,
           true,
         );
+        await resetCheckInUserPassword(plain, door.id, "another door password");
       });
     });
 
@@ -585,13 +624,13 @@ describe(
           "createdAt",
           "disabled",
           "id",
-          "isDefaultAdmin",
+          "isSuperAdmin",
           "role",
           "updatedAt",
           "username",
         ]);
         assert.equal(made.role, ROLE.ADMIN);
-        assert.equal(made.isDefaultAdmin, false);
+        assert.equal(made.isSuperAdmin, false);
         assert.equal(made.username, "TCU_Boss2");
 
         const row = await prisma.user.findUniqueOrThrow({
@@ -611,22 +650,23 @@ describe(
         const session = (await sessionOf(boss2))!;
         assert.equal(isAdmin(session.user), true);
         assert.equal(homeFor(session.user), "/admin");
-        // The new admin can make accounts of its own, admins included.
+        assert.equal(
+          isSuperAdmin(session.user),
+          false,
+          "an ordinary admin, not a super admin",
+        );
+        // It can make check-in accounts, but not admins: only a super admin can.
         await createCheckInUser(boss2, {
           username: "tcu_by_boss2",
           password: PASSWORD,
         });
-        await createAdminUser(boss2, {
-          username: "tcu_boss3",
-          password: PASSWORD,
-        });
+        await rejectsWith(
+          "FORBIDDEN",
+          createAdminUser(boss2, { username: "tcu_boss3", password: PASSWORD }),
+        );
         assert.equal(
-          (
-            await prisma.user.findUniqueOrThrow({
-              where: { username: "tcu_boss3" },
-            })
-          ).role,
-          ROLE.ADMIN,
+          await prisma.user.count({ where: { username: "tcu_boss3" } }),
+          0,
         );
       });
 
@@ -815,12 +855,12 @@ describe(
     });
 
     describe("the seed and the default admin", () => {
-      it("re-enables the default admin when run again, since the app can't", async () => {
+      it("re-enables the super admin when run again, since the app can't", async () => {
         await prisma.user.update({
           where: { username: ADMIN.username },
           data: { banned: true, banReason: "x" },
         });
-        assert.equal(await upsertAdmin(prisma, ADMIN), "re-enabled");
+        assert.deepEqual(await upsertAdmin(prisma, ADMIN), ["re-enabled"]);
         const row = await prisma.user.findUniqueOrThrow({
           where: { username: ADMIN.username },
         });
@@ -829,12 +869,54 @@ describe(
         assert.ok((await signIn(ADMIN.username, ADMIN.password)).ok);
         assert.equal(await upsertAdmin(prisma, ADMIN), "unchanged");
       });
+
+      it("makes an ordinary admin with the seed's username a super admin, and allows more than one", async () => {
+        const plain = await createAdminUser(admin, {
+          username: "tcu_promote_me",
+          password: PASSWORD,
+        });
+        assert.deepEqual(
+          await upsertAdmin(prisma, {
+            username: "tcu_promote_me",
+            password: PASSWORD,
+          }),
+          ["promoted"],
+        );
+        assert.equal(
+          (await prisma.user.findUniqueOrThrow({ where: { id: plain.id } }))
+            .role,
+          ROLE.SUPER_ADMIN,
+        );
+        // The first super admin is still one: there can be several.
+        assert.equal(
+          (
+            await prisma.user.findUniqueOrThrow({
+              where: { username: ADMIN.username },
+            })
+          ).role,
+          ROLE.SUPER_ADMIN,
+        );
+        // A disabled admin promoted with a new password: every change is reported.
+        const other = await createAdminUser(admin, {
+          username: "tcu_promote_two",
+          password: PASSWORD,
+        });
+        await setCheckInUserDisabled(admin, other.id, true);
+        assert.deepEqual(
+          await upsertAdmin(prisma, {
+            username: "tcu_promote_two",
+            password: "another password 9",
+          }),
+          ["promoted", "re-enabled", "password-changed"],
+        );
+      });
     });
 
     describe("admins", () => {
-      it("are unchanged: the seed's admin is an admin, signs in and keeps every right", async () => {
+      it("the seed's account is a super admin, signs in and has every right", async () => {
         const session = (await sessionOf(admin))!;
-        assert.equal(session.user.role, ROLE.ADMIN);
+        assert.equal(session.user.role, ROLE.SUPER_ADMIN);
+        assert.equal(isSuperAdmin(session.user), true);
         assert.equal(isAdmin(session.user), true);
         assert.equal(canCheckIn(session.user), true);
         assert.equal(homeFor(session.user), "/admin");

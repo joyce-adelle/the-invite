@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 
 import { AddGuestButton } from "@/components/app/admin/add-guest-button";
@@ -11,6 +12,7 @@ import { StatsCards } from "@/components/app/admin/stats-cards";
 import { StatusTabs } from "@/components/app/admin/status-tabs";
 import { PageHeader } from "@/components/common/page-header";
 import { requireAdmin } from "@/lib/admin-session";
+import { isSuperAdmin } from "@/lib/roles";
 import { parseFilters } from "@/lib/admin-filters";
 import { getDashboardCounts } from "@/lib/data/guests";
 
@@ -19,18 +21,27 @@ export async function Dashboard({
 }: {
   searchParams: PageProps<"/admin">["searchParams"];
 }) {
-  await requireAdmin();
+  const { user } = await requireAdmin();
 
   const counts = await getDashboardCounts();
-  const filters = parseFilters(await searchParams, counts.hosts.map((host) => host.hostId));
-  const host = counts.hosts.find((candidate) => candidate.hostId === filters.host);
+  const filters = parseFilters(
+    await searchParams,
+    counts.hosts.map((host) => host.hostId),
+  );
+  const host = counts.hosts.find(
+    (candidate) => candidate.hostId === filters.host,
+  );
 
   // Tab counts follow the host filter; the cards and capacity above stay event-wide.
   const tabCounts = host ? host.byStatus : counts.byStatus;
-  const tabTotal = host ? Object.values(host.byStatus).reduce((a, b) => a + b, 0) : counts.total;
+  const tabTotal = host
+    ? Object.values(host.byStatus).reduce((a, b) => a + b, 0)
+    : counts.total;
 
   const hostOptions = counts.hosts.map((h) => ({ id: h.hostId, name: h.name }));
-  const tablesByHost = Object.fromEntries(counts.hosts.map((h) => [h.hostId, h.tables]));
+  const tablesByHost = Object.fromEntries(
+    counts.hosts.map((h) => [h.hostId, h.tables]),
+  );
 
   return (
     <div className="space-y-10">
@@ -38,10 +49,7 @@ export async function Dashboard({
         title="Dashboard"
         description="Review invitation requests and manage approved guests."
         actions={
-          <AddGuestButton
-            hosts={hostOptions}
-            defaultHostId={host?.hostId}
-          />
+          <AddGuestButton hosts={hostOptions} defaultHostId={host?.hostId} />
         }
       />
 
@@ -62,6 +70,12 @@ export async function Dashboard({
           </p>
         </div>
         <AttendanceCards attendance={counts.attendance} />
+        <Link
+          href="/check-in/progress"
+          className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          Check-in progress at the door, printed cards included →
+        </Link>
       </section>
 
       <section aria-labelledby="capacity-heading" className="space-y-3">
@@ -70,10 +84,12 @@ export async function Dashboard({
             Host capacity
           </h2>
           <p className="text-sm text-muted-foreground">
-            Counts approved guests only. Pending requests don&apos;t use capacity.
+            Approved guests against each host&apos;s digital places. Seats at
+            physical tables are taken by printed cards. Pending requests
+            don&apos;t use capacity.
           </p>
         </div>
-        <HostCapacity hosts={counts.hosts} />
+        <HostCapacity hosts={counts.hosts} canManage={isSuperAdmin(user)} />
       </section>
 
       <section aria-labelledby="guests-heading" className="space-y-4">
@@ -81,9 +97,14 @@ export async function Dashboard({
           Guests
         </h2>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <StatusTabs filters={filters} counts={{ ...tabCounts, all: tabTotal }} />
+          <StatusTabs
+            filters={filters}
+            counts={{ ...tabCounts, all: tabTotal }}
+          />
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {filters.status === "approved" && <CheckInFilter filters={filters} />}
+            {filters.status === "approved" && (
+              <CheckInFilter filters={filters} />
+            )}
             <HostFilter hosts={hostOptions} filters={filters} />
           </div>
         </div>
