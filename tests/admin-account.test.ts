@@ -296,10 +296,12 @@ describe("where an admin comes from", () => {
   });
 
   it("never puts the seed's password in the code or the migration", () => {
-    assert.doesNotMatch(
-      read("prisma/seed.ts"),
-      /password\s*[:=]\s*["'][^"']{8,}["']/i,
-    );
-    assert.match(read("prisma/seed.ts"), /process\.env\.ADMIN_PASSWORD/);
+    for (const file of ["prisma/seed.ts", "prisma/seed-prod.ts", "prisma/seed-admin.ts"]) {
+      assert.doesNotMatch(read(file), /password\s*[:=]\s*["'][^"']{8,}["']/i, file);
+    }
+    assert.match(read("prisma/seed-admin.ts"), /process\.env\.ADMIN_PASSWORD/);
+    for (const file of ["prisma/seed.ts", "prisma/seed-prod.ts"]) {
+      assert.match(read(file), /import \{ seedAdmin \} from "\.\/seed-admin"/, `${file} seeds the admin the same way`);
+    }
   });
 });

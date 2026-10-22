@@ -5,13 +5,14 @@ import { GuestError } from "@/lib/data/errors";
 import { getHost, getHosts } from "@/lib/data/hosts";
 import { prisma } from "@/lib/prisma";
 import {
+  AccessCardType,
   CardStatus,
   GuestStatus,
   Prisma,
   type Guest,
   type PrismaClient,
 } from "@/lib/generated/prisma/client";
-import { attendanceOf, hostOccupancy, nextAvailableTable, normalizeEmail, normalizeName } from "../utils";
+import { acceptsRequests, attendanceOf, hostOccupancy, nextAvailableTable, normalizeEmail, normalizeName } from "../utils";
 import type { AdminGuest } from "@/types/guest";
 import { HostOccupancy, HostWithTables } from "@/types/hosts";
 import { Attendance } from "@/types/check-in";
@@ -113,8 +114,10 @@ export async function createGuestRequest(input: {
       const host = await getHost(input.invitedBy, tx);
       if (!host) throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
 
-      // PENDING requests don't count; only APPROVED guests use capacity.
-      if ((await readOccupancy(tx, host)).remaining === 0) {
+      // PENDING requests don't count; only APPROVED guests use capacity. This is
+      // measured against everyone the host may bring, physical cards included, so
+      // a host with only physical tables still takes requests (see acceptsRequests).
+      if (!acceptsRequests(await readOccupancy(tx, host))) {
         throw new GuestError("HOST_FULL", `${host.name} has no invitations left.`);
       }
 
@@ -226,18 +229,9 @@ export async function updateGuestDetails(
       if (changed.host) {
         if (approved) {
           const occupancy = await readOccupancy(tx, newHost!);
-          if (occupancy.remaining === 0) {
-            throw new GuestError(
-              "HOST_FULL",
-              `${newHost!.name} has no invitations left, so this guest can't move there. Cancel another of their invitations to free a place, then try again.`,
-            );
-          }
           const tableNumber = nextAvailableTable(occupancy);
-          if (tableNumber === null) {
-            throw new GuestError(
-              "TABLE_FULL",
-              `Every table for ${newHost!.name} is full, so there's no seat for this guest. Free a seat there, then try again.`,
-            );
+          if (occupancy.remaining === 0 || tableNumber === null) {
+            throw noSeatError(occupancy, "so this guest can't move there", "then try again");
           }
           seat = { tableNumber };
         } else {
@@ -287,18 +281,9 @@ export function approveGuest(id: string): Promise<Guest> {
 
     // Only APPROVED guests use capacity, so a pending, rejected or cancelled guest never does.
     const occupancy = await readOccupancy(tx, host);
-    if (occupancy.remaining === 0) {
-      throw new GuestError(
-        "HOST_FULL",
-        `${host.name} has no invitations left. Cancel another invitation to free a place, then approve again.`,
-      );
-    }
     const tableNumber = nextAvailableTable(occupancy);
-    if (tableNumber === null) {
-      throw new GuestError(
-        "TABLE_FULL",
-        `Every table for ${host.name} is full, so there's no seat for this guest. Cancel another invitation to free a seat, then approve again.`,
-      );
+    if (occupancy.remaining === 0 || tableNumber === null) {
+      throw noSeatError(occupancy, "so there's no seat for this guest", "then approve again");
     }
     return tx.guest.update({
       where: { id },
@@ -362,6 +347,12 @@ export function updateGuestTable(
     const table = (await readOccupancy(tx, host)).tables.find((t) => t.number === tableNumber);
     if (!table) {
       throw new GuestError("UNKNOWN_TABLE", `Table ${tableNumber} isn't one of ${host.name}'s tables.`);
+    }
+    if (table.cardType === AccessCardType.PHYSICAL) {
+      throw new GuestError(
+        "TABLE_FULL",
+        `Table ${tableNumber} uses physical cards, so no one is seated there online. Choose a digital table, or make table ${tableNumber} digital first.`,
+      );
     }
     if (table.remaining === 0) {
       throw new GuestError(
@@ -445,6 +436,70 @@ export async function hostHasCapacity(hostId: string): Promise<boolean> {
     prisma.guest.count({ where: { invitedBy: hostId, status: GuestStatus.APPROVED } }),
   ]);
   return host !== null && host.capacity > approved;
+}
+
+// --- Tables ---
+
+/**
+ * Makes a table physical (printed cards, no one seated online) or digital
+ * (emailed cards, seats for approvals). Making a table physical is refused
+ * while approved guests are seated there: move them first. Runs under the
+ * host's seating lock, so an approval can't take a seat at the same moment.
+ * `changed` is false when the table already had that type.
+ */
+export async function setTableCardType(
+  tableNumber: number,
+  cardType: AccessCardType,
+): Promise<{ hostName: string; changed: boolean }> {
+  return prisma.$transaction(async (tx) => {
+    const found = await tx.table.findUnique({ where: { number: tableNumber }, select: { hostId: true } });
+    if (!found) throw new GuestError("UNKNOWN_TABLE", `There is no table ${tableNumber}.`);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seating:${found.hostId}`}))`;
+
+    const table = await tx.table.findUniqueOrThrow({
+      where: { number: tableNumber },
+      include: { host: { select: { name: true } } },
+    });
+    if (table.cardType === cardType) return { hostName: table.host.name, changed: false };
+
+    if (cardType === AccessCardType.PHYSICAL) {
+      const seated = await tx.guest.count({ where: { tableNumber, status: GuestStatus.APPROVED } });
+      if (seated > 0) {
+        throw new GuestError(
+          "TABLE_FULL",
+          `${seated === 1 ? "1 approved guest is" : `${seated} approved guests are`} seated at table ${tableNumber}. Move them to another table before making it physical.`,
+        );
+      }
+    }
+    await tx.table.update({ where: { number: tableNumber }, data: { cardType } });
+    return { hostName: table.host.name, changed: true };
+  });
+}
+
+/**
+ * Why a guest can't be seated with a host, and what the admin can do about it:
+ * a host with only physical tables needs another host or a digital table; a
+ * host whose digital seats are taken needs one freed, or a physical table made
+ * digital.
+ */
+function noSeatError(occupancy: HostOccupancy, consequence: string, then: string): GuestError {
+  const { name, digitalCapacity, physicalSeats } = occupancy;
+  if (digitalCapacity === 0) {
+    return new GuestError(
+      "HOST_FULL",
+      `All of ${name}'s tables use physical cards, ${consequence}. Move the guest to another host, or make one of ${name}'s tables digital (Host capacity on the dashboard), ${then}.`,
+    );
+  }
+  const physicalHint = physicalSeats > 0 ? `, or make one of ${name}'s physical tables digital` : "";
+  return occupancy.remaining === 0
+    ? new GuestError(
+        "HOST_FULL",
+        `${name} has no digital places left, ${consequence}. Cancel another invitation to free a place${physicalHint}, ${then}.`,
+      )
+    : new GuestError(
+        "TABLE_FULL",
+        `Every digital table for ${name} is full, ${consequence}. Cancel another invitation to free a seat${physicalHint}, ${then}.`,
+      );
 }
 
 // --- Internals ---

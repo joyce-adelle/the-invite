@@ -45,12 +45,20 @@ model Host {
   @@map("hosts")
 }
 
+/// How a table's guests get their access cards.
+enum AccessCardType {
+  PHYSICAL
+  DIGITAL
+}
+
 model Table {
   /// Unique across the event, so a number always means one physical table.
-  number   Int     @id
+  number   Int            @id
   capacity Int
-  hostId   String  @map("host_id")
-  host     Host    @relation(fields: [hostId], references: [id], onDelete: Restrict)
+  /// PHYSICAL tables count as full; approvals and moves only use DIGITAL ones. Admins can switch it.
+  cardType AccessCardType @default(DIGITAL) @map("card_type")
+  hostId   String         @map("host_id")
+  host     Host           @relation(fields: [hostId], references: [id], onDelete: Restrict)
   guests   Guest[]
 
   @@index([hostId])

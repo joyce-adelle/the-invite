@@ -1,11 +1,13 @@
-// Seeds the hosts and their tables, and the first admin. Run with `npm run db:seed`.
+// Development data: placeholder hosts and their tables, and the default admin.
+// Run with `npm run db:seed`. For the real event's hosts and tables, use
+// prisma/seed-prod.ts (`npm run db:seed:prod`).
 //
 // Safe to re-run: hosts are upserted by id and tables by number, so names,
 // capacities and table assignments are updated in place. Hosts or tables
 // removed from this list are NOT deleted, because guests may reference them.
 
-import { upsertAdmin } from "../lib/admin-account";
 import { prisma } from "../lib/prisma";
+import { seedAdmin } from "./seed-admin";
 
 // Every table seats the same number of guests; a host's capacity is
 // tables × TABLE_SIZE.
@@ -77,32 +79,6 @@ async function main() {
   });
   console.log(
     `Seeded ${hosts.length} hosts, ${TOTAL_TABLES} tables, ${TOTAL_TABLES * TABLE_SIZE} seats.`,
-  );
-}
-
-/**
- * The admin account, from ADMIN_USERNAME / ADMIN_PASSWORD (and optionally
- * ADMIN_EMAIL). Skipped when neither is set, so hosts can be seeded alone. Run
- * it again with a new ADMIN_PASSWORD to change that admin's password.
- */
-async function seedAdmin() {
-  const username = process.env.ADMIN_USERNAME?.trim();
-  const password = process.env.ADMIN_PASSWORD;
-  if (!username && !password) {
-    console.log("No ADMIN_USERNAME / ADMIN_PASSWORD set: no admin account made or changed.");
-    return;
-  }
-  if (!username || !password) {
-    throw new Error("Set both ADMIN_USERNAME and ADMIN_PASSWORD to seed an admin, or neither.");
-  }
-  const result = await upsertAdmin(prisma, { username, password, email: process.env.ADMIN_EMAIL });
-  console.log(
-    {
-      created: `Created admin "${username}".`,
-      "password-changed": `Changed the password of admin "${username}" (their sessions were ended).`,
-      "re-enabled": `Re-enabled admin "${username}", which had been disabled.`,
-      unchanged: `Admin "${username}" already exists with that password.`,
-    }[result],
   );
 }
 

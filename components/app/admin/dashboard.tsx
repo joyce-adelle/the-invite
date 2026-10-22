@@ -70,7 +70,7 @@ export async function Dashboard({
             Host capacity
           </h2>
           <p className="text-sm text-muted-foreground">
-            Counts approved guests only. Pending requests don&apos;t use capacity.
+            Approved guests against each host&apos;s digital places. Seats at physical tables are taken by printed cards. Pending requests don&apos;t use capacity.
           </p>
         </div>
         <HostCapacity hosts={counts.hosts} />
