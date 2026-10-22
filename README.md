@@ -139,7 +139,17 @@ Every table is either **physical** (the host hands out printed cards, which have
 - **Physical seats are taken.** A physical table counts as full: approval and table changes only ever seat guests at digital tables, and a host's places for approvals are its guest count minus its physical seats ([lib/utils.ts](lib/utils.ts) `hostOccupancy`).
 - **Requests stay open.** The public page still lists every host, and requests are measured against everyone the host may bring, physical cards included, so a host whose tables are all physical still takes requests. The admin decides at approval: the error says there's no digital seat and what to do, which is to move the guest to another host (Edit details), or make one of the host's tables digital.
 - **Switching a table.** On a host's page (Hosts, or Manage on a dashboard host card), an admin can make any table physical or digital. A table can't be made physical while approved guests are seated there; move them first.
-- **Checking in** guests with physical cards will be a separate, manual process; the QR check-in is for digital cards only.
+- **Checking in** guests with physical cards is a count per table (below); the QR check-in is for digital cards.
+
+## At the door
+
+Staff (check-in accounts and admins) have three tabs on the check-in pages:
+
+- **Scan QR:** the phone's camera opens a guest's QR link, as before.
+- **Printed cards** (`/check-in/printed`): printed cards have no names or QR codes in the app, so staff choose the **Guest Type** on the card and type its **Table No.** The app checks that the table belongs to that host and uses printed cards. If not, it says whose table it is, or that it's a QR table, and records nothing. Staff then record how many arrived (− / + then Record). A table's count never goes past its seats, even with several phones recording at once, and every entry records who made it and when. A mistaken entry can be undone; the undo is kept with who did it ([lib/data/physical-check-in.ts](lib/data/physical-check-in.ts), table `physical_arrivals`).
+- **Progress** (`/check-in/progress`): arrived against expected, in total, for QR cards (approved guests checked in) and printed cards (counted against the seats), per host and per table. Check-in accounts see counts only; admins also see the latest arrivals with names. It updates when you press **Refresh**, never by itself. The dashboard links to it.
+
+A printed-card table with arrivals counted can't be moved to another host or made digital, and seats per table can't go below a table's count.
 
 ## Business rules
 

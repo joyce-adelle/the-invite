@@ -1,6 +1,7 @@
 import "server-only";
 
 import { AccessCardType, GuestStatus, Prisma, type PrismaClient } from "@/lib/generated/prisma/client";
+import { physicalArrivalsAt } from "@/lib/data/physical-check-in";
 import { prisma } from "@/lib/prisma";
 
 // Managing hosts and tables (/admin/hosts). The rules:
@@ -276,6 +277,14 @@ export async function assignTable(
         `${seated === 1 ? "1 approved guest is" : `${seated} approved guests are`} seated at table ${tableNumber}. Move them to another of ${table.host?.name ?? "the host"}'s tables first.`,
       );
     }
+    // Printed-card guests already counted in at the door belong to this host's table.
+    const arrived = await physicalArrivalsAt(tx, tableNumber);
+    if (arrived > 0) {
+      throw new HostAdminError(
+        "TABLE_BUSY",
+        `${arrived} printed-card guest${arrived === 1 ? " has" : "s have"} already been counted in at table ${tableNumber}, so it stays with ${table.host?.name ?? "its host"}.`,
+      );
+    }
 
     await tx.table.update({ where: { number: tableNumber }, data: { hostId } });
     if (table.hostId) await syncCapacity(tx, table.hostId);
@@ -308,9 +317,11 @@ export async function updateEventSettings(input: { maxTables: unknown; seatsPerT
 
       const beyond = await tx.table.findMany({
         where: { number: { gt: maxTables } },
-        select: { number: true, hostId: true, _count: { select: { guests: true } } },
+        select: { number: true, hostId: true, _count: { select: { guests: true, physicalArrivals: true } } },
       });
-      const inUse = beyond.filter((t) => t.hostId !== null || t._count.guests > 0).map((t) => t.number);
+      const inUse = beyond
+        .filter((t) => t.hostId !== null || t._count.guests > 0 || t._count.physicalArrivals > 0)
+        .map((t) => t.number);
       if (inUse.length > 0) {
         throw new HostAdminError(
           "TABLE_BUSY",
@@ -328,6 +339,19 @@ export async function updateEventSettings(input: { maxTables: unknown; seatsPerT
         throw new HostAdminError(
           "TABLE_BUSY",
           `Table ${crowded[0].tableNumber} already has ${crowded[0]._count._all} approved guests, more than ${seatsPerTable} seats. Move some first.`,
+        );
+      }
+
+      const counted = await tx.physicalArrival.groupBy({
+        by: ["tableNumber"],
+        where: { undoneAt: null },
+        _sum: { count: true },
+      });
+      const overCounted = counted.find((row) => (row._sum.count ?? 0) > seatsPerTable);
+      if (overCounted) {
+        throw new HostAdminError(
+          "TABLE_BUSY",
+          `${overCounted._sum.count} printed-card guests have been counted in at table ${overCounted.tableNumber}, more than ${seatsPerTable} seats.`,
         );
       }
 

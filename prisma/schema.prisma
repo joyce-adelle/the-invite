@@ -64,14 +64,16 @@ enum AccessCardType {
 
 model Table {
   /// Unique across the event, so a number always means one physical table.
-  number   Int            @id
-  capacity Int
+  number           Int               @id
+  capacity         Int
   /// PHYSICAL tables count as full; approvals and moves only use DIGITAL ones. Admins can switch it.
-  cardType AccessCardType @default(DIGITAL) @map("card_type")
+  cardType         AccessCardType    @default(DIGITAL) @map("card_type")
   /// Null while the table isn't given to any host.
-  hostId   String?        @map("host_id")
-  host     Host?          @relation(fields: [hostId], references: [id], onDelete: Restrict)
-  guests   Guest[]
+  hostId           String?           @map("host_id")
+  host             Host?             @relation(fields: [hostId], references: [id], onDelete: Restrict)
+  guests           Guest[]
+  /// Guests with printed cards who arrived, counted at the door (PHYSICAL tables only).
+  physicalArrivals PhysicalArrival[]
 
   @@index([hostId])
   @@map("tables")
@@ -130,24 +132,26 @@ model InvitationSupportRequest {
 
 // --- Admin accounts (Better Auth) ---
 model User {
-  id              String    @id
-  name            String
-  email           String    @unique
-  emailVerified   Boolean   @default(false) @map("email_verified")
-  image           String?
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  username        String?   @unique
-  displayUsername String?   @map("display_username")
+  id               String            @id
+  name             String
+  email            String            @unique
+  emailVerified    Boolean           @default(false) @map("email_verified")
+  image            String?
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  username         String?           @unique
+  displayUsername  String?           @map("display_username")
   /// "admin" or "check_in" (lib/roles.ts). Set by Better Auth's admin plugin; never by the user.
-  role            String    @default("check_in")
+  role             String            @default("check_in")
   /// A disabled account: it can't sign in, and its sessions were deleted when it was disabled.
-  banned          Boolean   @default(false)
-  banReason       String?   @map("ban_reason")
-  banExpires      DateTime? @map("ban_expires") @db.Timestamptz(3)
-  sessions        Session[]
-  accounts        Account[]
-  checkIns        Guest[]   @relation("CheckedInBy")
+  banned           Boolean           @default(false)
+  banReason        String?           @map("ban_reason")
+  banExpires       DateTime?         @map("ban_expires") @db.Timestamptz(3)
+  sessions         Session[]
+  accounts         Account[]
+  checkIns         Guest[]           @relation("CheckedInBy")
+  arrivalsRecorded PhysicalArrival[] @relation("RecordedBy")
+  arrivalsUndone   PhysicalArrival[] @relation("UndoneBy")
 
   @@map("users")
 }
@@ -198,4 +202,27 @@ model Verification {
 
   @@index([identifier])
   @@map("verifications")
+}
+
+/// Guests with printed (physical) cards arriving at the door. Printed cards have
+/// no names or QR codes in the app, so staff count them per table: each row is
+/// one entry ("3 arrived for table 24"). A table's arrivals are its rows that
+/// haven't been undone, and never more than its seats (lib/data/physical-check-in.ts).
+model PhysicalArrival {
+  id          String    @id @default(uuid()) @db.Uuid
+  tableNumber Int       @map("table_number")
+  table       Table     @relation(fields: [tableNumber], references: [number], onDelete: Restrict)
+  /// How many arrived in this entry. Always at least 1 (CHECK constraint).
+  count       Int
+  recordedBy  String    @map("recorded_by")
+  recorder    User      @relation("RecordedBy", fields: [recordedBy], references: [id], onDelete: Restrict)
+  recordedAt  DateTime  @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  /// Set, with undoneBy, when the entry was a mistake. Kept as history rather than deleted.
+  undoneAt    DateTime? @map("undone_at") @db.Timestamptz(3)
+  undoneBy    String?   @map("undone_by")
+  undoer      User?     @relation("UndoneBy", fields: [undoneBy], references: [id], onDelete: Restrict)
+
+  @@index([tableNumber, undoneAt])
+  @@index([recordedAt])
+  @@map("physical_arrivals")
 }

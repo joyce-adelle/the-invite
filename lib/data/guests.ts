@@ -466,6 +466,16 @@ export async function setTableCardType(
     });
     if (table.cardType === cardType) return { hostName: table.host?.name ?? null, changed: false };
 
+    if (cardType === AccessCardType.DIGITAL) {
+      // Counts made at the door would vanish from the totals if the table stopped being physical.
+      const { _sum } = await tx.physicalArrival.aggregate({ where: { tableNumber, undoneAt: null }, _sum: { count: true } });
+      if ((_sum.count ?? 0) > 0) {
+        throw new GuestError(
+          "TABLE_FULL",
+          `${_sum.count} printed-card guest${_sum.count === 1 ? " has" : "s have"} already been counted in at table ${tableNumber}, so it stays physical.`,
+        );
+      }
+    }
     if (cardType === AccessCardType.PHYSICAL) {
       const seated = await tx.guest.count({ where: { tableNumber, status: GuestStatus.APPROVED } });
       if (seated > 0) {
