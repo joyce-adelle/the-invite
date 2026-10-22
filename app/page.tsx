@@ -1,8 +1,8 @@
 import HostGrid from "@/components/app/home/host-grid";
 import HostGridSkeleton from "@/components/app/home/host-grid-skeleton";
-import { SupportForm } from "@/components/app/invitation/support-form";
 import { PageHeader } from "@/components/common/page-header";
 import { PublicShell } from "@/components/layout/public-shell";
+import { SupportForm } from "@/components/app/invitation/support-form";
 import { Suspense } from "react";
 import { event } from "@/config/event";
 
@@ -13,7 +13,7 @@ export default function Home() {
         variant="public"
         eyebrow="You are invited"
         title={event.name}
-        description="We would be delighted to welcome you. To request your invitation, please begin by choosing the host who invited you."
+        description="We would be delighted to welcome you. Please begin by choosing who you are celebrating with."
       />
 
       <section aria-labelledby="hosts-heading" className="mt-14">
@@ -21,7 +21,7 @@ export default function Home() {
           id="hosts-heading"
           className="text-center text-xs font-medium tracking-[0.25em] text-muted-foreground uppercase"
         >
-          Who invited you?
+          Who are you celebrating with?
         </h2>
         <Suspense fallback={<HostGridSkeleton />}>
           <HostGrid />
