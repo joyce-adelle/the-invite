@@ -12,9 +12,20 @@ import type { DashboardCounts } from "@/lib/data/guests";
  * are taken by printed cards, so they're shown separately and never counted as
  * free. Pending requests are not counted as used.
  */
-export function HostCapacity({ hosts }: { hosts: DashboardCounts["hosts"] }) {
+/** `canManage`: a super admin, who gets a link to each host's page. */
+export function HostCapacity({
+  hosts,
+  canManage,
+}: {
+  hosts: DashboardCounts["hosts"];
+  canManage: boolean;
+}) {
   if (hosts.length === 0) {
-    return <p className="text-sm text-muted-foreground">No hosts are configured yet.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        No hosts are configured yet.
+      </p>
+    );
   }
 
   return (
@@ -22,7 +33,9 @@ export function HostCapacity({ hosts }: { hosts: DashboardCounts["hosts"] }) {
       {hosts.map((host) => {
         const allPhysical = host.digitalCapacity === 0;
         const percent =
-          host.digitalCapacity > 0 ? Math.min(100, (host.approved / host.digitalCapacity) * 100) : 0;
+          host.digitalCapacity > 0
+            ? Math.min(100, (host.approved / host.digitalCapacity) * 100)
+            : 0;
         const full = !allPhysical && host.remaining === 0;
         return (
           <li key={host.hostId}>
@@ -45,28 +58,40 @@ export function HostCapacity({ hosts }: { hosts: DashboardCounts["hosts"] }) {
                   className="h-1.5 overflow-hidden rounded-full bg-muted"
                 >
                   <div
-                    className={full ? "h-full bg-destructive" : "h-full bg-primary"}
+                    className={
+                      full ? "h-full bg-destructive" : "h-full bg-primary"
+                    }
                     style={{ width: `${percent}%` }}
                   />
                 </div>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
                   <span className="tabular-nums">
-                    <strong className="font-semibold">{host.approved}</strong> / {host.digitalCapacity} digital
+                    <strong className="font-semibold">{host.approved}</strong> /{" "}
+                    {host.digitalCapacity} digital
                   </span>
-                  <span className="text-muted-foreground tabular-nums">{host.remaining} remaining</span>
+                  <span className="text-muted-foreground tabular-nums">
+                    {host.remaining} remaining
+                  </span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-x-2 text-xs text-muted-foreground">
                   <span className="tabular-nums">
-                    {host.physicalSeats > 0 ? `${host.physicalSeats} physical · ` : ""}
+                    {host.physicalSeats > 0
+                      ? `${host.physicalSeats} physical · `
+                      : ""}
                     {host.capacity} guests in all
                   </span>
-                  <Link
-                    href={`/admin/hosts/${host.hostId}`}
-                    className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "-mr-2 h-7 px-2 text-xs")}
-                    aria-label={`Manage ${host.name}`}
-                  >
-                    <Settings2 aria-hidden /> Manage
-                  </Link>
+                  {canManage && (
+                    <Link
+                      href={`/admin/hosts/${host.hostId}`}
+                      className={cn(
+                        buttonVariants({ variant: "ghost", size: "sm" }),
+                        "-mr-2 h-7 px-2 text-xs",
+                      )}
+                      aria-label={`Manage ${host.name}`}
+                    >
+                      <Settings2 aria-hidden /> Manage
+                    </Link>
+                  )}
                 </div>
               </CardContent>
             </Card>

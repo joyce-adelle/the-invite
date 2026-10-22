@@ -11,6 +11,7 @@ import { StatsCards } from "@/components/app/admin/stats-cards";
 import { StatusTabs } from "@/components/app/admin/status-tabs";
 import { PageHeader } from "@/components/common/page-header";
 import { requireAdmin } from "@/lib/admin-session";
+import { isSuperAdmin } from "@/lib/roles";
 import { parseFilters } from "@/lib/admin-filters";
 import { getDashboardCounts } from "@/lib/data/guests";
 
@@ -19,7 +20,7 @@ export async function Dashboard({
 }: {
   searchParams: PageProps<"/admin">["searchParams"];
 }) {
-  await requireAdmin();
+  const { user } = await requireAdmin();
 
   const counts = await getDashboardCounts();
   const filters = parseFilters(await searchParams, counts.hosts.map((host) => host.hostId));
@@ -73,7 +74,7 @@ export async function Dashboard({
             Approved guests against each host&apos;s digital places. Seats at physical tables are taken by printed cards. Pending requests don&apos;t use capacity.
           </p>
         </div>
-        <HostCapacity hosts={counts.hosts} />
+        <HostCapacity hosts={counts.hosts} canManage={isSuperAdmin(user)} />
       </section>
 
       <section aria-labelledby="guests-heading" className="space-y-4">

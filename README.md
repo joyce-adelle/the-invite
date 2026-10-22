@@ -4,7 +4,7 @@ A lightweight event invitation app. Guests request an invitation from the host w
 
 - **Next.js 16** (App Router, Cache Components) · **React 19** · **Tailwind CSS v4**
 - **PostgreSQL** via **Prisma 7**. Local Postgres runs in Docker; production is any hosted Postgres set through `DATABASE_URL`.
-- **Better Auth** sign-in: username and password, with users, sessions and password hashes in Postgres (the `username` and `admin` plugins and the Prisma adapter). Two roles: **admins**, made by the seed from `ADMIN_USERNAME` / `ADMIN_PASSWORD`, and **check-in** accounts for door staff, made by admins in the app. There is no sign-up
+- **Better Auth** sign-in: username and password, with users, sessions and password hashes in Postgres (the `username` and `admin` plugins and the Prisma adapter). Three roles ([lib/roles.ts](lib/roles.ts)): **super admins**, made by the seed from `ADMIN_USERNAME` / `ADMIN_PASSWORD`; **admins**, added by a super admin; and **check-in** accounts for door staff, added by any admin. There is no sign-up
 - **Resend** for access-card emails
 - **pdf-lib** overlays guest details onto the card template
 
@@ -17,7 +17,7 @@ npm install                   # also generates the Prisma client
 cp .env.example .env.local    # then fill in the values
 docker compose up -d          # local Postgres on localhost:5433
 npm run db:migrate            # apply migrations (prisma migrate dev)
-npm run db:seed               # create the hosts and tables, and the admin from ADMIN_USERNAME / ADMIN_PASSWORD
+npm run db:seed               # create the hosts and tables, and the super admin from ADMIN_USERNAME / ADMIN_PASSWORD
 npm run dev
 ```
 
@@ -28,9 +28,9 @@ All environment variables are server-only. See [.env.example](.env.example) for 
 - `DATABASE_URL` is the only database setting. The Prisma CLI reads it from `.env.local` just like Next.js does ([prisma.config.ts](prisma.config.ts)).
 - Local data persists in the `pgdata` Docker volume across restarts. `docker compose down -v` deletes it.
 - **Schema changes:** edit [prisma/schema.prisma](prisma/schema.prisma), then run `npm run db:migrate -- --name <change>` and commit the new folder in `prisma/migrations/`.
-- **Admins** are rows in the `users` table with the `admin` role. The first is made by the seed ([lib/admin-account.ts](lib/admin-account.ts)), which won't turn an existing check-in account into one; after that, any admin can add more under **Staff accounts** with a username and password, and disable, re-enable or reset the password of any other admin. The **default admin**, the one `ADMIN_USERNAME` names, is the exception: no one can change it from the app, so there is always an admin who can't be locked out (keep `ADMIN_USERNAME` set on the server). Re-running the seed changes its password or re-enables it. To add one, or to change a password, run `npm run db:seed` with the new `ADMIN_USERNAME` / `ADMIN_PASSWORD`; changing a password signs that admin out everywhere. Sessions are stored in the database so signing out or deleting a user ends them at once.
+- **Super admins and admins** are rows in the `users` table. Super admins (`super_admin`) are made only by the seed ([lib/admin-account.ts](lib/admin-account.ts)): `npm run db:seed:admin` makes the `ADMIN_USERNAME` account one (promoting an existing ordinary admin, re-enabling a disabled one, or setting a new password), without touching hosts. There can be more than one. Only a super admin can change table settings, manage hosts (`/admin/hosts`) and add, disable or reset admins; nobody can disable, reset or demote a super admin from the app. Ordinary admins (`admin`) run the event: guests, cards, check-in, help requests and check-in users. **After deploying the migration that adds the role, run `npm run db:seed:admin` once**, or nobody can manage hosts.
 - **Hosts and tables (development)** come from [prisma/seed.ts](prisma/seed.ts): placeholder hosts, all digital. Edit the list and re-run `npm run db:seed`: it updates in place and never deletes, because guests reference hosts and tables. Don't change a host's `id` once guests exist.
-- **Production:** run `npm run db:deploy` (`prisma migrate deploy`) against the hosted database, then `npm run db:seed:prod` ([prisma/seed-prod.ts](prisma/seed-prod.ts)) with `DATABASE_URL` pointing at it. That seeds the real hosts and tables from the access-card sheet ([prisma/prod-hosts.ts](prisma/prod-hosts.ts)) and the default admin. On its own it is a dry run that checks the data and prints the plan; add `--apply` to write. It refuses to run if the sheet doesn't add up (800 guests, tables 1–80 each given once, every host's tables matching its guests and its physical/digital split), and refuses, before writing anything, to move a table where approved guests are seated. Re-running keeps any card type an admin changed in the app (`--reset-card-types` restores the sheet's), and only removes hosts that aren't in the sheet when asked (`--remove-unlisted-hosts`, and only if they have no guests or tables). If your provider gives you a pooled connection string (e.g. Supabase's transaction pooler), run migrations with its direct or session connection string.
+- **Production:** run `npm run db:deploy` (`prisma migrate deploy`) against the hosted database, then `npm run db:seed:prod` ([prisma/seed-prod.ts](prisma/seed-prod.ts)) with `DATABASE_URL` pointing at it. That seeds the real hosts and tables from the access-card sheet ([prisma/prod-hosts.ts](prisma/prod-hosts.ts)) and the super admin. On its own it is a dry run that checks the data and prints the plan; add `--apply` to write. It refuses to run if the sheet doesn't add up (800 guests, tables 1–80 each given once, every host's tables matching its guests and its physical/digital split), and refuses, before writing anything, to move a table where approved guests are seated. Re-running keeps any card type an admin changed in the app (`--reset-card-types` restores the sheet's), and only removes hosts that aren't in the sheet when asked (`--remove-unlisted-hosts`, and only if they have no guests or tables). If your provider gives you a pooled connection string (e.g. Supabase's transaction pooler), run migrations with its direct or session connection string.
 - Some constraints live only in the migration SQL because Prisma's schema language can't express them: normalised emails, approved guests must have a table, and capacities must be positive.
 
 ### Resend
@@ -95,7 +95,7 @@ Cards are generated on demand from **one** template, [template/access-card-templ
 
 ## Staff accounts
 
-Admins manage accounts at **Staff accounts** in the admin header ([app/admin/(protected)/accounts](app/admin/(protected)/accounts/page.tsx)). **Add admin** creates another admin with a username and password; Better Auth only lets a caller with permission to set roles do that, which a check-in account never has. Every account, admin or check-in, can be disabled, re-enabled or given a new password ([lib/staff-accounts.ts](lib/staff-accounts.ts)), except the default admin from `ADMIN_USERNAME` and the admin's own account; the server refuses both, whatever the page shows. A disabled admin is signed out everywhere and has no admin rights until re-enabled. The rest of this section is about check-in accounts.
+Accounts are managed at **Staff accounts** in the admin header ([app/admin/(protected)/accounts](app/admin/(protected)/accounts/page.tsx)). **Add admin** (super admins only) creates an ordinary admin with a username and password. Any admin can add check-in users. A super admin can disable, re-enable or reset any ordinary admin or check-in user; an ordinary admin only check-in users; nobody can change a super admin or their own account here ([lib/staff-accounts.ts](lib/staff-accounts.ts)). The server enforces all of it, whatever the page shows. A disabled admin is signed out everywhere and has no admin rights until re-enabled. The rest of this section is about check-in accounts.
 
 ### Check-in accounts
 
@@ -124,7 +124,7 @@ Every approved guest's card carries a QR code in the bottom-right corner of page
 
 ## Hosts and tables
 
-Admins manage hosts at **Hosts** in the admin header (`/admin/hosts`, [lib/data/host-admin.ts](lib/data/host-admin.ts)):
+Super admins manage hosts at **Hosts** in the admin header (ordinary admins don't see it, and are sent back to the dashboard) (`/admin/hosts`, [lib/data/host-admin.ts](lib/data/host-admin.ts)):
 
 - **Table settings:** how many tables the event has (numbered from 1) and seats per table, stored in the database (`EventSettings`) and set by both seeds (80 × 10). More tables appear unassigned and digital. Fewer is refused while a table above the new number belongs to a host or has ever had a guest; fewer seats is refused while a table has more approved guests than that.
 - **Hosts:** add one (its web address, `/invite/<id>`, is made from the name and never changes), rename it (cards made afterwards show the new name), hide it from the public page (its link stops taking requests; its guests, cards, tables and check-ins are kept, and admins can still add guests), or delete it (only with no guests at all and no tables).

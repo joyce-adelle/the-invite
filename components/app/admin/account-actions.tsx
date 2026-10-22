@@ -26,7 +26,7 @@ import {
   setStaffAccountDisabledAction,
   type StaffAccountActionResult,
 } from "@/lib/actions/staff-accounts";
-import { ROLE, type Role } from "@/lib/roles";
+import { ROLE, type CreatableRole } from "@/lib/roles";
 import { parsePassword } from "@/lib/validation/account";
 
 function isRedirectError(error: unknown): boolean {
@@ -36,20 +36,19 @@ function isRedirectError(error: unknown): boolean {
 
 const OFFLINE = "We couldn't reach the server. Check your connection and try again.";
 
-const DISABLE_EFFECT: Record<Role, string> = {
+const DISABLE_EFFECT: Record<CreatableRole, string> = {
   [ROLE.CHECK_IN]: "can't sign in or check anyone in",
   [ROLE.ADMIN]: "can't sign in or use the admin area",
 };
 
 /**
  * Disable or re-enable a staff account, or give it a new password. The page
- * only offers this for accounts the server will allow: not the default admin,
- * and not your own.
+ * only offers this for accounts the server will allow (lib/staff-accounts.ts).
  */
 export function AccountActions({
   user,
 }: {
-  user: { id: string; username: string; disabled: boolean; role: Role };
+  user: { id: string; username: string; disabled: boolean; role: CreatableRole };
 }) {
   const [busy, startTransition] = useTransition();
   const [dialog, setDialog] = useState<"disable" | "password" | null>(null);

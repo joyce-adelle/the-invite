@@ -2,20 +2,18 @@ import "server-only";
 
 import { APIError } from "better-auth/api";
 
-import { defaultAdminUsername } from "@/lib/admin-account";
 import { auth } from "@/lib/auth";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { isAdmin, ROLE, type Role } from "@/lib/roles";
+import { isAdmin, isSuperAdmin, ROLE, type CreatableRole, type Role } from "@/lib/roles";
 import { parseNewAccount, parsePassword, type NewAccountInput } from "@/lib/validation/account";
 
-// Staff accounts, managed by admins in the app: admins and check-in accounts,
-// stored by Better Auth like every other account (users + a credential account
-// holding the password's hash). Admins can create either kind, and disable,
-// re-enable or reset the password of any of them, with two exceptions:
-//   - the default admin, the one ADMIN_USERNAME names (the seed's account),
-//     so there is always an admin nobody can lock out from the app;
-//   - their own account, so nobody disables or signs out themselves by mistake.
+// Staff accounts, managed in the app, stored by Better Auth like every other
+// account (users + a credential account holding the password's hash):
+//   - any admin can create, disable, re-enable or reset check-in accounts;
+//   - only a super admin can do the same to ordinary admins;
+//   - nobody can change a super admin from the app (only the seed makes or
+//     changes one), and nobody can change their own account here.
 // Every change goes through Better Auth's admin API with the acting admin's own
 // request headers, so Better Auth checks their role too: a check-in account
 // asking for any of this is refused there as well as here.
@@ -26,8 +24,8 @@ export type StaffAccount = {
   username: string;
   role: Role;
   disabled: boolean;
-  /** The admin ADMIN_USERNAME names: listed, but never changeable from the app. */
-  isDefaultAdmin: boolean;
+  /** Made by the seed: listed, but never changeable from the app. */
+  isSuperAdmin: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -45,7 +43,8 @@ export class StaffAccountError extends Error {
 }
 
 const NOT_FOUND = "That account could not be found.";
-const STAFF_ROLES = [ROLE.ADMIN, ROLE.CHECK_IN];
+const STAFF_ROLES = [ROLE.SUPER_ADMIN, ROLE.ADMIN, ROLE.CHECK_IN];
+const ADMIN_ROLES = [ROLE.SUPER_ADMIN, ROLE.ADMIN];
 
 const select = {
   id: true,
@@ -58,26 +57,28 @@ const select = {
 } satisfies Prisma.UserSelect;
 
 function toStaffAccount(user: Prisma.UserGetPayload<{ select: typeof select }>): StaffAccount {
-  const defaultAdmin = defaultAdminUsername();
   return {
     id: user.id,
     username: user.displayUsername ?? user.username ?? "",
     role: user.role as Role,
     disabled: user.banned,
-    isDefaultAdmin: user.role === ROLE.ADMIN && defaultAdmin !== null && user.username === defaultAdmin,
+    isSuperAdmin: user.role === ROLE.SUPER_ADMIN,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
 }
 
-/** Every account with this role. Admins oldest first; check-in accounts active first, then by username. */
-export async function listStaffAccounts(role: Role): Promise<StaffAccount[]> {
+/**
+ * The admins (super admins first, then the rest oldest first), or the check-in
+ * accounts (active first, then by username).
+ */
+export async function listStaffAccounts(group: "admins" | typeof ROLE.CHECK_IN): Promise<StaffAccount[]> {
   const users = await prisma.user.findMany({
-    where: { role },
+    where: { role: { in: group === "admins" ? ADMIN_ROLES : [ROLE.CHECK_IN] } },
     select,
     orderBy:
-      role === ROLE.ADMIN
-        ? [{ createdAt: "asc" }, { username: "asc" }]
+      group === "admins"
+        ? [{ role: "desc" }, { createdAt: "asc" }, { username: "asc" }]
         : [{ banned: "asc" }, { username: "asc" }],
   });
   return users.map(toStaffAccount);
@@ -91,8 +92,9 @@ async function findStaffAccount(id: string): Promise<StaffAccount> {
 
 /**
  * The account an admin wants to change, once it's clear they may: it exists,
- * it isn't the default admin, and it isn't their own. The acting admin comes
- * from the request's verified session, not from anything the browser says.
+ * it isn't a super admin, it isn't their own, and if it's an admin, they are a
+ * super admin. The acting admin comes from the request's verified session, not
+ * from anything the browser says.
  */
 async function findManageable(headers: Headers, id: string): Promise<StaffAccount> {
   const session = await auth.api.getSession({ headers });
@@ -101,14 +103,14 @@ async function findManageable(headers: Headers, id: string): Promise<StaffAccoun
   }
 
   const account = await findStaffAccount(id);
-  if (account.isDefaultAdmin) {
-    throw new StaffAccountError(
-      "PROTECTED",
-      `"${account.username}" is the default admin from ADMIN_USERNAME, so it can't be changed here.`,
-    );
+  if (account.isSuperAdmin) {
+    throw new StaffAccountError("PROTECTED", `"${account.username}" is a super admin, so it can't be changed here.`);
   }
   if (account.id === session.user.id) {
     throw new StaffAccountError("PROTECTED", "You can't change your own account here.");
+  }
+  if (account.role === ROLE.ADMIN && !isSuperAdmin(session.user)) {
+    throw new StaffAccountError("FORBIDDEN", "Only a super admin can change admin accounts.");
   }
   return account;
 }
@@ -139,7 +141,17 @@ function translate(error: unknown): never {
  * case. Better Auth needs an email address on every account; this one is a
  * placeholder nobody ever sees or sends to.
  */
-export async function createStaffAccount(headers: Headers, input: NewAccountInput, role: Role): Promise<StaffAccount> {
+export async function createStaffAccount(
+  headers: Headers,
+  input: NewAccountInput,
+  role: CreatableRole,
+): Promise<StaffAccount> {
+  if (role === ROLE.ADMIN) {
+    const session = await auth.api.getSession({ headers });
+    if (!session || !isSuperAdmin(session.user)) {
+      throw new StaffAccountError("FORBIDDEN", "Only a super admin can add admins.");
+    }
+  }
   // Checked here as well as in the server action: Better Auth's createUser
   // doesn't apply the minimum password length itself.
   const parsed = parseNewAccount(input);

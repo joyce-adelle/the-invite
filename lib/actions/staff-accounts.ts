@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import { requireAdmin } from "@/lib/admin-session";
-import { ROLE, type Role } from "@/lib/roles";
+import { requireAdmin, requireSuperAdmin } from "@/lib/admin-session";
+import { ROLE, type CreatableRole } from "@/lib/roles";
 import {
   createStaffAccount,
   resetStaffAccountPassword,
@@ -28,7 +28,7 @@ const NOT_FOUND = "That account could not be found.";
 const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
 const PAGE = "/admin/accounts";
 
-const ROLE_NAME: Record<Role, string> = { [ROLE.ADMIN]: "Admin", [ROLE.CHECK_IN]: "Check-in account" };
+const ROLE_NAME: Record<CreatableRole, string> = { [ROLE.ADMIN]: "Admin", [ROLE.CHECK_IN]: "Check-in account" };
 
 async function settle(operation: () => Promise<string>): Promise<StaffAccountActionResult> {
   try {
@@ -49,7 +49,7 @@ async function settle(operation: () => Promise<string>): Promise<StaffAccountAct
   }
 }
 
-async function create(role: Role, input: { username: string; password: string }): Promise<StaffAccountActionResult> {
+async function create(role: CreatableRole, input: { username: string; password: string }): Promise<StaffAccountActionResult> {
   const parsed = parseNewAccount({ username: input?.username, password: input?.password });
   if (!parsed.success) {
     return { ok: false, message: "Please check the highlighted fields.", fieldErrors: parsed.fieldErrors };
@@ -66,13 +66,16 @@ export async function createCheckInUserAction(input: { username: string; passwor
   return create(ROLE.CHECK_IN, input);
 }
 
-/** Makes another admin. Only an admin can, and Better Auth checks that too. */
+/** Makes another admin. Only a super admin can (checked again in lib/staff-accounts.ts). */
 export async function createAdminUserAction(input: { username: string; password: string }): Promise<StaffAccountActionResult> {
-  await requireAdmin();
+  await requireSuperAdmin();
   return create(ROLE.ADMIN, input);
 }
 
-/** Disables or re-enables any staff account except the default admin and your own. */
+/**
+ * Disables or re-enables a staff account: a check-in account for any admin, an
+ * admin only for a super admin, a super admin or your own account never.
+ */
 export async function setStaffAccountDisabledAction(id: string, disabled: boolean): Promise<StaffAccountActionResult> {
   await requireAdmin();
 
@@ -86,7 +89,7 @@ export async function setStaffAccountDisabledAction(id: string, disabled: boolea
   });
 }
 
-/** Gives any staff account except the default admin and your own a new password. */
+/** Gives a staff account a new password, under the same rules as disabling. */
 export async function resetStaffAccountPasswordAction(id: string, password: string): Promise<StaffAccountActionResult> {
   await requireAdmin();
 

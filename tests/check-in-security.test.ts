@@ -166,8 +166,10 @@ describe("staff accounts, and who may manage them", () => {
     for (const name of names) {
       const start = actions.indexOf(`function ${name}(`);
       const body = actions.slice(start, actions.indexOf("\nexport ", start + 1) >>> 0 || undefined);
-      const check = body.indexOf("await requireAdmin()");
-      assert.ok(check > 0, `${name} checks the admin`);
+      // Adding an admin needs a super admin; the rest an admin (lib/staff-accounts.ts narrows it further).
+      const required = name === "createAdminUserAction" ? "await requireSuperAdmin()" : "await requireAdmin()";
+      const check = body.indexOf(required);
+      assert.ok(check > 0, `${name} checks ${required}`);
       assert.doesNotMatch(body.slice(0, check), /await\s+[A-Za-z]/, `${name} awaits nothing first`);
     }
   });
@@ -183,13 +185,17 @@ describe("staff accounts, and who may manage them", () => {
     for (const api of ["createUser", "banUser", "unbanUser", "setUserPassword", "revokeUserSessions"]) {
       assert.match(lib, new RegExp(`auth\\.api\\.${api}\\(\\{\\s*headers`), api);
     }
-    // Every change goes through one guard: an active admin, not the default admin, not themselves.
+    // Every change goes through one guard: an active admin, never a super admin or themselves,
+    // and an admin only by a super admin.
     assert.equal(lib.match(/await findManageable\(headers, id\)/g)?.length, 2, "both disabling and resetting use it");
     const guard = lib.slice(lib.indexOf("async function findManageable"));
     assert.match(guard, /if \(!session \|\| !isAdmin\(session\.user\)\)/);
-    assert.match(guard, /if \(account\.isDefaultAdmin\)/);
+    assert.match(guard, /if \(account\.isSuperAdmin\)/);
     assert.match(guard, /if \(account\.id === session\.user\.id\)/);
-    assert.match(lib, /defaultAdmin !== null && user\.username === defaultAdmin/, "the default admin is the one ADMIN_USERNAME names");
+    assert.match(guard, /if \(account\.role === ROLE\.ADMIN && !isSuperAdmin\(session\.user\)\)/);
+    assert.match(lib, /isSuperAdmin: user\.role === ROLE\.SUPER_ADMIN/, "a super admin is the role, not an environment variable");
+    // And making an admin is checked in the library too, not only in the action.
+    assert.match(lib, /if \(role === ROLE\.ADMIN\) \{\s*const session = await auth\.api\.getSession\(\{ headers \}\);\s*if \(!session \|\| !isSuperAdmin\(session\.user\)\)/);
   });
 
   it("keeps Better Auth's own admin endpoints unreachable over HTTP", () => {
@@ -200,7 +206,7 @@ describe("staff accounts, and who may manage them", () => {
   it("gives a check-in account no admin rights in Better Auth, and refuses a disabled account everywhere", () => {
     const authConfig = read("lib/auth.ts");
     assert.match(authConfig, /\[ROLE\.CHECK_IN\]: ac\.newRole\(\{ user: \[\], session: \[\] \}\)/);
-    assert.match(authConfig, /adminRoles: \[ROLE\.ADMIN\]/);
+    assert.match(authConfig, /adminRoles: \[ROLE\.SUPER_ADMIN, ROLE\.ADMIN\]/);
     assert.match(authConfig, /defaultRole: ROLE\.CHECK_IN/);
     assert.match(read("lib/roles.ts"), /const isActive = \(user: AccessUser\) => user\.banned !== true;/);
   });

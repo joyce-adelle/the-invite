@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
-import { canCheckIn, isAdmin } from "@/lib/roles";
+import { canCheckIn, isAdmin, isSuperAdmin } from "@/lib/roles";
 
 // Server-side access checks. Every protected page, server action and route
 // handler must call one of these itself: layouts don't re-run on client
@@ -19,6 +19,12 @@ export const getCurrentSession = cache(async () => auth.api.getSession({ headers
 export const getAdminSession = cache(async () => {
   const session = await getCurrentSession();
   return session && isAdmin(session.user) ? session : null;
+});
+
+/** The session of an active super admin, or null. */
+export const getSuperAdminSession = cache(async () => {
+  const session = await getCurrentSession();
+  return session && isSuperAdmin(session.user) ? session : null;
 });
 
 /** The session of anyone allowed to check guests in (an active admin or check-in account), or null. */
@@ -42,5 +48,16 @@ export async function requireAdmin() {
 export async function requireCheckIn() {
   const session = await getCheckInSession();
   if (!session) redirect("/admin/login");
+  return session;
+}
+
+/**
+ * For super-admin pages and server actions (host management, table settings,
+ * managing admins). An ordinary admin is sent back to the dashboard; anyone
+ * else is handled as requireAdmin() does.
+ */
+export async function requireSuperAdmin() {
+  const session = await requireAdmin();
+  if (!isSuperAdmin(session.user)) redirect("/admin");
   return session;
 }

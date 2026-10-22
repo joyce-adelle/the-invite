@@ -15,19 +15,25 @@ import { ROLE } from "@/lib/roles";
 // the Prisma adapter (users, sessions, accounts and verifications, see
 // prisma/schema.prisma).
 //
-// Two roles (lib/roles.ts), kept by Better Auth's admin plugin in `users.role`:
-//   admin     made only by the seed (prisma/seed.ts) from ADMIN_USERNAME /
-//             ADMIN_PASSWORD, and can do everything
-//   check_in  made by an admin in the app, and can only check guests in
+// Three roles (lib/roles.ts), kept by Better Auth's admin plugin in `users.role`:
+//   super_admin  made only by the seed (prisma/seed.ts) from ADMIN_USERNAME /
+//                ADMIN_PASSWORD; can do everything, and is never changeable
+//                from the app
+//   admin        made by a super admin in the app; runs the event
+//   check_in     made by any admin in the app; can only check guests in
+// Better Auth gives both admin roles its admin API (they manage check-in
+// accounts through it); which accounts each may change is decided in
+// lib/staff-accounts.ts.
 // Sign-up is disabled. Sessions live in the database, so signing out, or an
 // account being disabled (the plugin's "ban", which also deletes its
 // sessions), ends them at once.
 
-// What each role may do through Better Auth's own admin APIs. Admins keep the
-// plugin's full admin set; a check-in account gets none of it, so it can't
+// What each role may do through Better Auth's own admin APIs. Both admin roles
+// keep the plugin's full admin set; a check-in account gets none of it, so it can't
 // create, list, disable or change any user, itself included.
 const ac = createAccessControl(defaultStatements);
 const roles = {
+  [ROLE.SUPER_ADMIN]: ac.newRole(adminAc.statements),
   [ROLE.ADMIN]: ac.newRole(adminAc.statements),
   [ROLE.CHECK_IN]: ac.newRole({ user: [], session: [] }),
 };
@@ -47,7 +53,7 @@ export const auth = betterAuth({
     admin({
       ac,
       roles,
-      adminRoles: [ROLE.ADMIN],
+      adminRoles: [ROLE.SUPER_ADMIN, ROLE.ADMIN],
       // Least privilege: an account made without a role can only check in.
       defaultRole: ROLE.CHECK_IN,
       bannedUserMessage: "This account has been disabled. Please ask an event administrator.",

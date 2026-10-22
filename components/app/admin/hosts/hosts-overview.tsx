@@ -9,13 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { requireAdmin } from "@/lib/admin-session";
+import { requireSuperAdmin } from "@/lib/admin-session";
 import { getHostsOverview } from "@/lib/data/host-admin";
 import { cn } from "@/lib/utils";
 
-/** Admins only: every host, its tables and guests, and the tables nobody has yet. */
+/** Super admins only: every host, its tables and guests, and the tables nobody has yet. */
 export async function HostsOverview() {
-  await requireAdmin();
+  await requireSuperAdmin();
   const { settings, hosts, unassigned } = await getHostsOverview();
 
   const assigned = hosts.reduce((sum, h) => sum + h.tables.length, 0);

@@ -11,13 +11,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { dashboardHref } from "@/lib/admin-filters";
-import { requireAdmin } from "@/lib/admin-session";
+import { requireSuperAdmin } from "@/lib/admin-session";
 import { getHostSummary } from "@/lib/data/host-admin";
 import { cn } from "@/lib/utils";
 
-/** Admins only: one host's overview, its tables, and everything that can be changed about it. */
+/** Super admins only: one host's overview, its tables, and everything that can be changed about it. */
 export async function HostDetail({ params }: { params: PageProps<"/admin/hosts/[id]">["params"] }) {
-  await requireAdmin();
+  await requireSuperAdmin();
   const { id } = await params;
   const found = await getHostSummary(id);
   if (!found) notFound();

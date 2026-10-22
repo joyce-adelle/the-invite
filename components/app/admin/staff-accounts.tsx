@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, ShieldCheck, Users } from "lucide-react";
+import { ArrowLeft, Crown, ShieldCheck, Users } from "lucide-react";
 
 import { AccountActions } from "@/components/app/admin/account-actions";
 import { AddAccountButton } from "@/components/app/admin/add-account-button";
@@ -10,20 +10,26 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAdmin } from "@/lib/admin-session";
-import { ROLE, type Role } from "@/lib/roles";
+import { isSuperAdmin, ROLE } from "@/lib/roles";
 import { listStaffAccounts, type StaffAccount } from "@/lib/staff-accounts";
 import { cn } from "@/lib/utils";
 
-/** Admins only: every staff account, admins first, then check-in users. */
+/**
+ * Admins only: every staff account. Any admin manages check-in users; only a
+ * super admin adds or changes admins; nobody changes a super admin or their own
+ * account here. The server enforces all of it (lib/staff-accounts.ts); this
+ * only hides what it would refuse.
+ */
 export async function StaffAccounts() {
   const { user: me } = await requireAdmin();
-  const [admins, checkIns] = await Promise.all([listStaffAccounts(ROLE.ADMIN), listStaffAccounts(ROLE.CHECK_IN)]);
+  const superAdmin = isSuperAdmin(me);
+  const [admins, checkIns] = await Promise.all([listStaffAccounts("admins"), listStaffAccounts(ROLE.CHECK_IN)]);
 
   return (
     <div className="space-y-10">
       <PageHeader
         title="Staff accounts"
-        description="Who can sign in: admins, who can do everything, and check-in users for the door."
+        description="Who can sign in: super admins, admins who run the event, and check-in users for the door."
         actions={
           <Link href="/admin" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
             <ArrowLeft aria-hidden /> Dashboard
@@ -32,19 +38,25 @@ export async function StaffAccounts() {
       />
 
       <AccountsSection
-        role={ROLE.ADMIN}
         title="Admins"
-        description="Full access, including managing staff accounts. The default admin, from ADMIN_USERNAME, can't be changed here, and nor can your own account."
+        description={
+          superAdmin
+            ? "Super admins (made by the seed) can do everything and can't be changed here. You can add, disable or reset ordinary admins."
+            : "Only a super admin can add or change admins."
+        }
         accounts={admins}
         meId={me.id}
+        add={superAdmin ? ROLE.ADMIN : null}
+        canManage={(account) => superAdmin && account.role === ROLE.ADMIN}
       />
 
       <AccountsSection
-        role={ROLE.CHECK_IN}
         title="Check-in users"
         description="For door staff. They can only open a guest's QR code and confirm their check-in: no dashboard, guest list, emails or settings."
         accounts={checkIns}
         meId={me.id}
+        add={ROLE.CHECK_IN}
+        canManage={() => true}
         empty={{ title: "No check-in users yet", hint: "Add one for each person checking guests in at the door." }}
       />
     </div>
@@ -52,21 +64,23 @@ export async function StaffAccounts() {
 }
 
 function AccountsSection({
-  role,
   title,
   description,
   accounts,
   meId,
+  add,
+  canManage,
   empty,
 }: {
-  role: Role;
   title: string;
   description: string;
   accounts: StaffAccount[];
   meId: string;
+  add: typeof ROLE.ADMIN | typeof ROLE.CHECK_IN | null;
+  canManage: (account: StaffAccount) => boolean;
   empty?: { title: string; hint: string };
 }) {
-  const headingId = `${role}-accounts-heading`;
+  const headingId = `${title.toLowerCase().replace(/\W+/g, "-")}-heading`;
   return (
     <section aria-labelledby={headingId} className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -76,7 +90,7 @@ function AccountsSection({
           </h2>
           <p className="max-w-2xl text-sm text-muted-foreground">{description}</p>
         </div>
-        <AddAccountButton role={role} />
+        {add && <AddAccountButton role={add} />}
       </div>
 
       {accounts.length === 0 && empty ? (
@@ -104,13 +118,18 @@ function AccountsSection({
             <TableBody>
               {accounts.map((account) => {
                 const isMe = account.id === meId;
+                const manageable = !account.isSuperAdmin && !isMe && canManage(account);
                 return (
                   <TableRow key={account.id}>
                     <TableCell className="pl-4 font-medium">
                       <span className="inline-flex flex-wrap items-center gap-2">
-                        {role === ROLE.ADMIN && <ShieldCheck className="size-4 text-olive" aria-hidden />}
+                        {account.isSuperAdmin ? (
+                          <Crown className="size-4 text-gold" aria-hidden />
+                        ) : (
+                          account.role === ROLE.ADMIN && <ShieldCheck className="size-4 text-olive" aria-hidden />
+                        )}
                         {account.username}
-                        {account.isDefaultAdmin && <Badge variant="outline">Default</Badge>}
+                        {account.isSuperAdmin && <Badge variant="outline">Super admin</Badge>}
                         {isMe && <Badge variant="secondary">You</Badge>}
                       </span>
                     </TableCell>
@@ -128,13 +147,12 @@ function AccountsSection({
                       <DateCell value={account.updatedAt} time />
                     </TableCell>
                     <TableCell className="pr-4 text-right">
-                      {/* The server refuses both of these anyway (lib/staff-accounts.ts). */}
-                      {account.isDefaultAdmin || isMe ? (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      ) : (
+                      {manageable && (account.role === ROLE.ADMIN || account.role === ROLE.CHECK_IN) ? (
                         <AccountActions
-                          user={{ id: account.id, username: account.username, disabled: account.disabled, role }}
+                          user={{ id: account.id, username: account.username, disabled: account.disabled, role: account.role }}
                         />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </TableCell>
                   </TableRow>

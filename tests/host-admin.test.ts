@@ -482,7 +482,7 @@ describe(
 describe("who can manage hosts", () => {
   const actions = readFileSync("lib/actions/hosts.ts", "utf8");
 
-  it("makes every host action check for an active admin before anything else", () => {
+  it("makes every host action check for an active super admin before anything else", () => {
     const names = [...actions.matchAll(/export async function (\w+Action)\(/g)].map((m) => m[1]);
     assert.deepEqual(names.sort(), [
       "assignTableAction",
@@ -497,18 +497,30 @@ describe("who can manage hosts", () => {
       const start = actions.indexOf(`function ${name}(`);
       const next = actions.indexOf("\nexport ", start + 1);
       const body = actions.slice(start, next < 0 ? undefined : next);
-      const check = body.indexOf("await requireAdmin()");
-      assert.ok(check > 0, `${name} checks the admin`);
+      const check = body.indexOf("await requireSuperAdmin()");
+      assert.ok(check > 0, `${name} checks for a super admin`);
       assert.doesNotMatch(body.slice(0, check), /await\s+[A-Za-z]/, `${name} awaits nothing first`);
     }
   });
 
-  it("checks the admin on both pages before reading anything", () => {
+  it("checks for a super admin on both pages before reading anything", () => {
     for (const file of ["components/app/admin/hosts/hosts-overview.tsx", "components/app/admin/hosts/host-detail.tsx"]) {
       const source = readFileSync(file, "utf8");
-      const check = source.indexOf("await requireAdmin()");
+      const check = source.indexOf("await requireSuperAdmin()");
       const read = source.search(/await getHost(sOverview|Summary)\(/);
       assert.ok(check > 0 && read > check, `${file}: the admin is checked before the hosts are read`);
     }
+    assert.doesNotMatch(actions, /requireAdmin\(\)/, "no host action settles for an ordinary admin");
+  });
+
+  it("makes requireSuperAdmin() refuse an ordinary admin, not just a signed-out visitor", () => {
+    const session = readFileSync("lib/admin-session.ts", "utf8");
+    const body = session.slice(session.indexOf("export async function requireSuperAdmin"));
+    assert.match(body, /const session = await requireAdmin\(\);\s*if \(!isSuperAdmin\(session\.user\)\) redirect\("\/admin"\);/);
+  });
+
+  it("shows host management links only to super admins", () => {
+    assert.match(readFileSync("components/app/admin/admin-frame.tsx", "utf8"), /isSuperAdmin\(user\) && \(/);
+    assert.match(readFileSync("components/app/admin/dashboard.tsx", "utf8"), /canManage=\{isSuperAdmin\(user\)\}/);
   });
 });

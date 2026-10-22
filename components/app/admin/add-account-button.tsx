@@ -21,7 +21,7 @@ import {
   createAdminUserAction,
   createCheckInUserAction,
 } from "@/lib/actions/staff-accounts";
-import { ROLE, type Role } from "@/lib/roles";
+import { ROLE, type CreatableRole } from "@/lib/roles";
 import {
   parseNewAccount,
   type AccountFieldErrors,
@@ -43,15 +43,12 @@ const COPY = {
     button: "Add admin",
     title: "Add an admin",
     description:
-      "Add an admin who can manage guests, send cards, see help requests, and add or disable staff accounts, including other admins. Share the password with them yourself; it is never shown again.",
+      "They run the event: guests, cards, check-in, help requests and check-in users. They can't change hosts, table settings or admin accounts; only super admins can. Share the password with them yourself; it is never shown again.",
   },
-} satisfies Record<
-  Role,
-  { button: string; title: string; description: string }
->;
+} satisfies Record<CreatableRole, { button: string; title: string; description: string }>;
 
 /** Adds a staff account with the given role. */
-export function AddAccountButton({ role }: { role: Role }) {
+export function AddAccountButton({ role }: { role: CreatableRole }) {
   const [open, setOpen] = useState(false);
   const copy = COPY[role];
   return (
@@ -77,7 +74,7 @@ export function AddAccountButton({ role }: { role: Role }) {
   );
 }
 
-function AddForm({ role, onDone }: { role: Role; onDone: () => void }) {
+function AddForm({ role, onDone }: { role: CreatableRole; onDone: () => void }) {
   const prefix = role === ROLE.ADMIN ? "new-admin" : "new-check-in";
   const [pending, startTransition] = useTransition();
   const [values, setValues] = useState({ username: "", password: "" });
