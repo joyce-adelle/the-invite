@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma, PrismaClient } from "@/lib/generated/prisma/client";
 import { HostWithTables, PublicHost } from "@/types/hosts";
 
-// Hosts and tables are seeded (prisma/seed.ts) and read-only in the app.
+// Reading hosts and their tables. Hosts are seeded, then managed by admins on
+// /admin/hosts (lib/data/host-admin.ts).
 
 type Client = PrismaClient | Prisma.TransactionClient;
 
@@ -23,10 +24,20 @@ export function getHost(id: string, client: Client = prisma): Promise<HostWithTa
 
 // --- Public reads ---
 
+/** Hosts on the public page: only those taking requests. A hidden host is "not found" to the public. */
 export function getPublicHosts(): Promise<PublicHost[]> {
-  return prisma.host.findMany({ select: { id: true, name: true }, orderBy: { id: "asc" } });
+  return prisma.host.findMany({
+    where: { acceptingRequests: true },
+    select: { id: true, name: true },
+    orderBy: { id: "asc" },
+  });
 }
 
 export function getPublicHost(id: string): Promise<PublicHost | null> {
-  return prisma.host.findUnique({ where: { id }, select: { id: true, name: true } });
+  return prisma.host.findFirst({ where: { id, acceptingRequests: true }, select: { id: true, name: true } });
+}
+
+/** A host's name, hidden or not: what an access card prints under "Guest Type". */
+export async function getHostName(id: string): Promise<string | null> {
+  return (await prisma.host.findUnique({ where: { id }, select: { name: true } }))?.name ?? null;
 }

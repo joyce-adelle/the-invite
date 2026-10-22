@@ -6,8 +6,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-session";
 import { isGuestError } from "@/lib/data/errors";
 import { GuestStatus } from "@/types/guest";
-import { cancelGuest, createGuest, rejectGuest, setTableCardType, updateGuestDetails } from "@/lib/data/guests";
-import { AccessCardType } from "@/lib/generated/prisma/enums";
+import { cancelGuest, createGuest, rejectGuest, updateGuestDetails } from "@/lib/data/guests";
 import { getHost } from "@/lib/data/hosts";
 import { resolveSupportRequest } from "@/lib/data/support";
 import { deliveryMessage, resendMessage } from "@/lib/delivery-messages";
@@ -178,28 +177,6 @@ export async function resendAccessCardAction(id: string): Promise<AdminActionRes
     const result = resendMessage(guest, delivery);
     // A failed email changes nothing else, so it is a plain failure.
     return result.ok ? result.message : result;
-  });
-}
-
-/**
- * Makes a table physical (printed cards; nobody seated there online) or
- * digital (seats for approved online requests). A table with approved guests
- * can't be made physical until they are moved.
- */
-export async function setTableCardTypeAction(tableNumber: number, cardType: string): Promise<AdminActionResult> {
-  await requireAdmin();
-
-  const table = tableNumberSchema.safeParse(tableNumber);
-  const type = z.enum(AccessCardType).safeParse(cardType);
-  if (!table.success || !type.success) return { ok: false, message: "Choose a valid table and card type." };
-
-  return settle(async () => {
-    const { hostName, changed } = await setTableCardType(table.data, type.data);
-    const kind = type.data === AccessCardType.PHYSICAL ? "physical" : "digital";
-    if (!changed) return `Table ${table.data} already uses ${kind} cards.`;
-    return type.data === AccessCardType.DIGITAL
-      ? `Table ${table.data} (${hostName}) is now digital: its seats can be given to approved requests.`
-      : `Table ${table.data} (${hostName}) is now physical: its seats are counted as taken by printed cards.`;
   });
 }
 

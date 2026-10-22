@@ -1,4 +1,8 @@
-import { HostTablesDialog } from "@/components/app/admin/host-tables-dialog";
+import Link from "next/link";
+import { Settings2 } from "lucide-react";
+
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { DashboardCounts } from "@/lib/data/guests";
@@ -56,7 +60,13 @@ export function HostCapacity({ hosts }: { hosts: DashboardCounts["hosts"] }) {
                     {host.physicalSeats > 0 ? `${host.physicalSeats} physical · ` : ""}
                     {host.capacity} guests in all
                   </span>
-                  <HostTablesDialog hostName={host.name} tables={host.tables} />
+                  <Link
+                    href={`/admin/hosts/${host.hostId}`}
+                    className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "-mr-2 h-7 px-2 text-xs")}
+                    aria-label={`Manage ${host.name}`}
+                  >
+                    <Settings2 aria-hidden /> Manage
+                  </Link>
                 </div>
               </CardContent>
             </Card>

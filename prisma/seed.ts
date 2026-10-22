@@ -69,6 +69,8 @@ function validate() {
 async function main() {
   validate();
   await prisma.$transaction(async (tx) => {
+    const settings = { maxTables: TOTAL_TABLES, seatsPerTable: TABLE_SIZE };
+    await tx.eventSettings.upsert({ where: { id: 1 }, create: { id: 1, ...settings }, update: settings });
     for (const { numbers, ...host } of plan()) {
       await tx.host.upsert({ where: { id: host.id }, create: host, update: host });
       for (const number of numbers) {

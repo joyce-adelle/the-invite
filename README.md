@@ -122,13 +122,23 @@ Every approved guest's card carries a QR code in the bottom-right corner of page
 
 `npm test` runs Node's built-in test runner. The database tests write to `DATABASE_URL`, so they skip themselves unless it points at a local database, and they delete what they create. Tests never send real email: they pass in a stand-in mail client, and [tests/no-email.ts](tests/no-email.ts) blanks the API key so a test that forgets would fail rather than send. Test files run one after another, since they share the local database. [tests/card-delivery.test.ts](tests/card-delivery.test.ts) runs the whole story (first send, failed send, resend, resend after a table change) through the real flows and the real card generator, reading the attached PDFs back. QR codes are read back with a decoder (`jsqr`) from the card's picture and from the email's, to prove they hold the same address.
 
+## Hosts and tables
+
+Admins manage hosts at **Hosts** in the admin header (`/admin/hosts`, [lib/data/host-admin.ts](lib/data/host-admin.ts)):
+
+- **Table settings:** how many tables the event has (numbered from 1) and seats per table, stored in the database (`EventSettings`) and set by both seeds (80 × 10). More tables appear unassigned and digital. Fewer is refused while a table above the new number belongs to a host or has ever had a guest; fewer seats is refused while a table has more approved guests than that.
+- **Hosts:** add one (its web address, `/invite/<id>`, is made from the name and never changes), rename it (cards made afterwards show the new name), hide it from the public page (its link stops taking requests; its guests, cards, tables and check-ins are kept, and admins can still add guests), or delete it (only with no guests at all and no tables).
+- **Tables:** give a free table to a host, move a table between hosts, give one up (unassigned), and switch it between physical and digital. A host's guest count is always its tables' seats added up, recalculated with every change. A table where approved guests are seated never moves or becomes physical: move the guests to another table first (Change table on the dashboard).
+- **Each host's page** shows its guests (capacity, physical seats, digital places left, approved, pending, checked in, rejected and cancelled), its tables with who's seated, and a link to its guests on the dashboard.
+- Every change takes the same per-host seating lock as approvals, so an approval and a table moving away can't both happen.
+
 ## Physical and digital cards
 
 Every table is either **physical** (the host hands out printed cards, which have no QR code) or **digital** (guests request online and are emailed a card with a QR code). It's `Table.cardType`, set by the production seed from the sheet.
 
 - **Physical seats are taken.** A physical table counts as full: approval and table changes only ever seat guests at digital tables, and a host's places for approvals are its guest count minus its physical seats ([lib/utils.ts](lib/utils.ts) `hostOccupancy`).
 - **Requests stay open.** The public page still lists every host, and requests are measured against everyone the host may bring, physical cards included, so a host whose tables are all physical still takes requests. The admin decides at approval: the error says there's no digital seat and what to do, which is to move the guest to another host (Edit details), or make one of the host's tables digital.
-- **Switching a table.** On the dashboard, each host card shows its digital places, its physical seats and a **Tables** button listing its tables, where an admin can make any table physical or digital. A table can't be made physical while approved guests are seated there; move them first.
+- **Switching a table.** On a host's page (Hosts, or Manage on a dashboard host card), an admin can make any table physical or digital. A table can't be made physical while approved guests are seated there; move them first.
 - **Checking in** guests with physical cards will be a separate, manual process; the QR check-in is for digital cards only.
 
 ## Business rules

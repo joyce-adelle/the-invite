@@ -112,7 +112,10 @@ export async function createGuestRequest(input: {
     return await prisma.$transaction(async (tx) => {
 
       const host = await getHost(input.invitedBy, tx);
-      if (!host) throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
+      // A hidden host is unknown to the public, even if its address is known.
+      if (!host || !host.acceptingRequests) {
+        throw new GuestError("UNKNOWN_HOST", `Unknown host "${input.invitedBy}".`);
+      }
 
       // PENDING requests don't count; only APPROVED guests use capacity. This is
       // measured against everyone the host may bring, physical cards included, so
@@ -450,17 +453,18 @@ export async function hostHasCapacity(hostId: string): Promise<boolean> {
 export async function setTableCardType(
   tableNumber: number,
   cardType: AccessCardType,
-): Promise<{ hostName: string; changed: boolean }> {
+): Promise<{ hostName: string | null; changed: boolean }> {
   return prisma.$transaction(async (tx) => {
     const found = await tx.table.findUnique({ where: { number: tableNumber }, select: { hostId: true } });
     if (!found) throw new GuestError("UNKNOWN_TABLE", `There is no table ${tableNumber}.`);
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seating:${found.hostId}`}))`;
+    // A table with no host has nobody seated, so there's no host's seating to hold still.
+    if (found.hostId) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seating:${found.hostId}`}))`;
 
     const table = await tx.table.findUniqueOrThrow({
       where: { number: tableNumber },
       include: { host: { select: { name: true } } },
     });
-    if (table.cardType === cardType) return { hostName: table.host.name, changed: false };
+    if (table.cardType === cardType) return { hostName: table.host?.name ?? null, changed: false };
 
     if (cardType === AccessCardType.PHYSICAL) {
       const seated = await tx.guest.count({ where: { tableNumber, status: GuestStatus.APPROVED } });
@@ -472,7 +476,7 @@ export async function setTableCardType(
       }
     }
     await tx.table.update({ where: { number: tableNumber }, data: { cardType } });
-    return { hostName: table.host.name, changed: true };
+    return { hostName: table.host?.name ?? null, changed: true };
   });
 }
 

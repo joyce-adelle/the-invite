@@ -35,14 +35,25 @@ enum SupportRequestStatus {
 }
 
 model Host {
-  /// Short stable slug, e.g. "host-01". Set by the seed.
-  id       String  @id
-  name     String
-  capacity Int
-  tables   Table[]
-  guests   Guest[]
+  id                String  @id
+  name              String
+  /// Every guest the host may bring: always its tables' seats added up (lib/data/host-admin.ts keeps it so).
+  capacity          Int
+  acceptingRequests Boolean @default(true) @map("accepting_requests")
+  tables            Table[]
+  guests            Guest[]
 
   @@map("hosts")
+}
+
+/// Event-wide settings: one row (id 1). Seeded, and editable on /admin/hosts.
+model EventSettings {
+  id            Int      @id @default(1)
+  maxTables     Int      @map("max_tables")
+  seatsPerTable Int      @map("seats_per_table")
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("event_settings")
 }
 
 /// How a table's guests get their access cards.
@@ -57,8 +68,9 @@ model Table {
   capacity Int
   /// PHYSICAL tables count as full; approvals and moves only use DIGITAL ones. Admins can switch it.
   cardType AccessCardType @default(DIGITAL) @map("card_type")
-  hostId   String         @map("host_id")
-  host     Host           @relation(fields: [hostId], references: [id], onDelete: Restrict)
+  /// Null while the table isn't given to any host.
+  hostId   String?        @map("host_id")
+  host     Host?          @relation(fields: [hostId], references: [id], onDelete: Restrict)
   guests   Guest[]
 
   @@index([hostId])

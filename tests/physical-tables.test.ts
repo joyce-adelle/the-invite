@@ -104,7 +104,7 @@ describe("physical-card tables", { skip: !isLocal && "DATABASE_URL is not a loca
 
     it("works the same as before for a host with no physical tables", () => {
       const occupancy = hostOccupancy(
-        { id: "h", name: "H", capacity: 5, tables: [{ number: 1, capacity: 4, cardType: "DIGITAL", hostId: "h" }] },
+        { id: "h", name: "H", capacity: 5, acceptingRequests: true, tables: [{ number: 1, capacity: 4, cardType: "DIGITAL", hostId: "h" }] },
         1,
         new Map([[1, 1]]),
       );
